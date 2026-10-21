@@ -10,9 +10,6 @@ their own context windows. Once state lives outside the agent, the hard question
 land on the platform: where does state live, who owns it, what happens when a process
 dies mid-task, or when two agents disagree about what's true?
 
-Everything here is meant to be **run by hand from its README** — demos are published,
-iterated on, and kept honest by being executed, not just described.
-
 Demos live under [`docs/demos/`](docs/demos/), organized by **track**: one directory per
 line of inquiry, each demo inside it self-contained.
 
@@ -26,8 +23,7 @@ line of inquiry, each demo inside it self-contained.
 
 ## Working here
 
-- A demo's README is its entry point: prerequisites, setup, what to observe, teardown.
-- Measured results go in the track's `FINDINGS.md` (append-only), not into README prose.
+- Each demo is a self-contained directory; its README is the entry point.
 - AI agents: [`AGENTS.md`](AGENTS.md) carries the conventions — read natively by
   Claude Code, pi, and Codex.
 

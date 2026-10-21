@@ -11,11 +11,6 @@
 | - | ---- | -------------------- | ------ |
 | 1 | TODO | TODO | — |
 
-## Notes
-
-- Add `FINDINGS.md` (append-only, measured results) and `scratch.md` (unformed ideas)
-  as the track grows — see [../README.md](../README.md) for the pattern.
-
 ---
 
 _Assisted-By: GLM 5.3_

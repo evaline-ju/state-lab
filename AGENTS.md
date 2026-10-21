@@ -2,8 +2,7 @@
 
 A line of research on state management for agents: demo flows exercising various state
 requirements, from durability to passability, organized by track under `docs/demos/`.
-Nothing here is a library or a service — everything is meant to be run by hand from
-its README.
+Nothing here is a library or a service — each demo is a self-contained directory.
 
 ## Repository layout
 
@@ -13,25 +12,19 @@ state-lab/
 │   ├── README.md          # the track index
 │   └── <track>/
 │       ├── README.md      # track overview + table of demos with status
-│       ├── FINDINGS.md    # measured results — append-only
-│       ├── scratch.md     # unformed ideas, promoted into demos when built
 │       └── <demo>/        # self-contained: README + scripts + manifests
 └── AGENTS.md              # this file — the conventions
 ```
 
 ## Demo conventions
 
-1. **A demo is runnable from its README alone.** Prerequisites, setup, what to
-   observe, teardown. If a step isn't written down, the demo doesn't have that step.
-2. **`setup.sh` / `teardown.sh` bracket anything with side effects** — kind clusters,
+1. **`setup.sh` / `teardown.sh` bracket anything with side effects** — kind clusters,
    pods, port-forwards, files outside the demo directory.
-3. **Adding a demo means adding its row** to the track README's table (name, what it
+2. **Adding a demo means adding its row** to the track README's table (name, what it
    demonstrates, status: Sketch → Validated).
-4. **Measured numbers go in the track's `FINDINGS.md`**, append-only. A README makes
-   claims; FINDINGS records what actually happened, including the failures.
-5. **Keep demos self-contained.** No dependencies on other tracks; tooling shared
+3. **Keep demos self-contained.** No dependencies on other tracks; tooling shared
    within a track lives at the track root, never across tracks.
-6. **Never commit secrets or local state.** Kubeconfigs, `.env*`, `*.key`, `.claude/`
+4. **Never commit secrets or local state.** Kubeconfigs, `.env*`, `*.key`, `.claude/`
    are gitignored — keep them that way. Demo settings that carry tokens are shipped
    as `*.example` files.
 

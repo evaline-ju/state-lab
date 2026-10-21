@@ -43,14 +43,10 @@ Demos live under [`docs/demos/`](docs/demos/), one directory per track. The patt
 ```
 docs/demos/<track>/
 ├── README.md      # the track's question + a table of its demos, with status
-├── FINDINGS.md    # measured results — append-only, never rewritten
-├── scratch.md     # unformed ideas, promoted into demo dirs when built
 └── <demo>/        # README (entry point) + setup.sh/teardown.sh + code
 ```
 
-When you add a demo, add its row to the track README's table. Record what you measured
-in `FINDINGS.md`, not in the demo's README — a README makes claims, FINDINGS records
-what actually happened.
+When you add a demo, add its row to the track README's table.
 
 ## Commits
 
