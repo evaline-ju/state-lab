@@ -18,4 +18,4 @@
 
 ---
 
-_Assisted-By: Claude Code_
+_Assisted-By: GLM 5.3_

@@ -34,4 +34,4 @@ Apache-2.0 — see [LICENSE](LICENSE).
 
 ---
 
-_Assisted-By: Claude Code_
+_Assisted-By: GLM 5.3_

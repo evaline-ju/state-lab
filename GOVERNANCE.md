@@ -31,4 +31,4 @@ from [`rossoctl/.github`](https://github.com/rossoctl/.github).
 
 ---
 
-_Assisted-By: Claude Code_
+_Assisted-By: GLM 5.3_

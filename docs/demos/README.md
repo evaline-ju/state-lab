@@ -25,4 +25,4 @@ other than its author has run its README end to end.
 
 ---
 
-_Assisted-By: Claude Code_
+_Assisted-By: GLM 5.3_
