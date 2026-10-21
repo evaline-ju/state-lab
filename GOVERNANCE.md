@@ -23,12 +23,12 @@ rather than copied into each repo where they would drift.
 - **[`CODEOWNERS`](CODEOWNERS)** — required per-repo. Review assignment is not inherited.
 - **[`CONTRIBUTING.md`](CONTRIBUTING.md)** — the build and test steps specific to _this_ repo.
   The contribution _process_ is the org document above.
-- **[`CLAUDE.md`](CLAUDE.md)** — conventions for AI agents working in this repo, including the
-  documentation rules.
+- **[`AGENTS.md`](AGENTS.md)** — conventions for AI agents working in this repo
+  (read natively by Claude Code, pi, and Codex).
 
 Issue templates, the PR template and the org-wide security policy are inherited automatically
 from [`rossoctl/.github`](https://github.com/rossoctl/.github).
 
 ---
 
-_Assisted-By: Claude Code_
+_Assisted-By: GLM 5.3_

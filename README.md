@@ -1,130 +1,42 @@
-# rossoctl/repo-template
+# state-lab
 
-A GitHub **template repository** carrying the rossoctl documentation convention: a `docs/`
-tree where every kind of document has one home and one lifecycle, with CI gates that keep the
-convention from rotting.
+This repo collects a set of demo flows exercising various state requirements, from
+durability to passability.
 
-Derived from the shape proven in [`rossoctl/moca`](https://github.com/rossoctl/moca), plus an
-append-only `docs/reports/` for measured implementation results.
+Agents are becoming more distributed — cooperating processes spread across machines,
+sessions, and lifetimes (see the [moca](https://github.com/rossoctl/moca) repo) — and
+increasingly externalize their state into files, stores, and services rather than
+their own context windows. Once state lives outside the agent, the hard questions
+land on the platform: where does state live, who owns it, what happens when a process
+dies mid-task, or when two agents disagree about what's true?
 
-> **Using this template?** Click **Use this template** above, then follow
-> [Bootstrapping](#bootstrapping) to replace the placeholders. Delete this section and
-> everything above `---` once done, replacing it with your project's own README.
+Demos live under [`docs/demos/`](docs/demos/), organized by **track**: one directory per
+line of inquiry, each demo inside it self-contained.
 
-## What you get
+## Tracks
 
-```
-docs/
-├── README.md                  # the router + the lifecycle rules (read this first)
-├── <project>-overview.md      # executive overview — all essential info, kept current
-├── glossary.md
-├── specs/                     # deep designs — revised in place, versioned
-│   ├── README.md              #   the registry: canonical ids + status
-│   └── 0000-spec-template.md
-├── adrs/                      # one decision per file — permanent, immutable
-│   ├── README.md
-│   └── 0000-adr-template.md
-├── reports/                   # what a phase built and measured — append-only
-│   ├── README.md
-│   └── 0000-report-template.md
-├── demos/                     # performed walkthroughs, in acts
-│   └── README.md
-├── notes/                     # investigations, runbooks, dead ends
-│   └── README.md
-└── plans/                     # LOCAL ONLY — gitignored, CI-enforced
-    └── README.md
-```
+| Track | What it explores | Status |
+| ----- | ---------------- | ------ |
+| [`TODO-track`](docs/demos/TODO-track/) | TODO | Stub |
 
-Plus: `CLAUDE.md` (agent instructions for the convention), `GOVERNANCE.md` (pointers to the
-org-level documents), `LICENSE`, `CODEOWNERS`, `CONTRIBUTING.md`, the org lint configs, and a
-`docs` CI workflow.
+<!-- One row per track. Rename TODO-track/ once the first track is named. -->
 
-### The idea in one table
+## Working here
 
-| Artifact     | Answers                              | Lifecycle                            |
-| ------------ | ------------------------------------ | ------------------------------------ |
-| **Overview** | the whole picture, briefly           | kept current                         |
-| **Spec**     | what & why, in depth                 | **revised in place**, versioned      |
-| **ADR**      | one decision + consequences          | **permanent, immutable**             |
-| **Report**   | what was built and **measured**      | **append-only, never rewritten**     |
-| **Demo**     | how to show it working               | updated when commands change         |
-| **Note**     | an investigation, runbook, dead end  | dated, left as-is                    |
-| **Plan**     | how, in what order                   | **local-only — written, run, deleted** |
+- Each demo is a self-contained directory; its README is the entry point.
+- AI agents: [`AGENTS.md`](AGENTS.md) carries the conventions — read natively by
+  Claude Code, pi, and Codex.
 
-The two distinctions that carry the most weight:
+## Contributing and governance
 
-- **A plan is never committed.** Code is the source of truth for _how_; a committed plan is a
-  stale copy of the code that misleads. Write it → execute it → delete it.
-- **Specs revise, reports do not.** A spec says what _will_ be true and is corrected as you
-  learn. A report says what _was_ true when measured, and is never retro-edited — because its
-  most valuable content is the record of a prediction that turned out wrong.
+This is a line of research, not a platform component — but it still runs on project
+conventions: [`GOVERNANCE.md`](GOVERNANCE.md) indexes the project-wide documents, and
+[`CONTRIBUTING.md`](CONTRIBUTING.md) covers this repo's setup.
 
-## Bootstrapping
+## License
 
-After creating your repo from this template:
-
-```sh
-# 1. Replace the placeholders. <PROJECT> is the repo name; <TEAM> the owning GitHub team.
-grep -rl --exclude-dir=.git -e '<PROJECT>' -e '<TEAM>' . \
-  | xargs sed -i '' -e 's|<PROJECT>|myrepo|g' -e 's|<TEAM>|myrepo-maintainers|g'
-# (GNU sed: use `sed -i` without the '' argument)
-
-# 2. Rename the overview to match.
-git mv docs/PROJECT-overview.md docs/myrepo-overview.md
-
-# 3. Install the hooks — the commit-msg one enforces the Assisted-By trailer.
-pre-commit install && pre-commit install --hook-type commit-msg
-
-# 4. Check it all still hangs together.
-./scripts/check-no-committed-plans.sh && ./scripts/check-doc-headers.sh
-
-# 5. Protect `main`. DO THIS BEFORE THE FIRST PULL REQUEST.
-#    A template copies files, not settings, so `main` starts wide open — which is how
-#    several rossoctl repos ended up merging PRs with nothing required at all.
-./scripts/protect-main.sh                          # one review + DCO
-./scripts/protect-main.sh --checks DCO,lint,test   # once CI exists, require it too
-```
-
-**Step 5 is the one people skip**, and it is the only step whose absence is invisible:
-nothing fails, PRs just merge unreviewed. `scripts/protect-main.sh --dry-run` prints the
-request without sending it, and `--list-checks` shows the contexts seen on both `main` and
-the latest PR as a starting point — but **only require a check that runs on
-`pull_request`**. A push- or schedule-triggered context never reports on a PR, so the PR
-waits for it forever. A context that appears only in the PR column is `pull_request`-
-triggered; one that appears only on `main` is not, and requiring it will wedge every PR.
-
-Then:
-
-- Fill in `docs/<project>-overview.md` — it is the front door.
-- Confirm `@rossoctl/<TEAM>` in `CODEOWNERS` exists and has write access, or GitHub ignores
-  the file silently.
-- Add your language's ignores to `.gitignore` and hooks to `.pre-commit-config.yaml` (both
-  have a marked section at the end).
-- Replace this README.
-
-Paths inside the templates that are still placeholders (`` `<file>.md` ``, `` `<topic>-report.md` ``)
-are written as **inline code, not links**, so the link checker has nothing unresolvable to
-chase while the template is still a template. Turn them into real markdown links as you fill
-them in — CI then keeps them honest.
-
-### What the template deliberately leaves out
-
-Issue templates, the PR template and the org-wide security policy are **inherited
-automatically** from [`rossoctl/.github`](https://github.com/rossoctl/.github), so they are not
-duplicated here. `LICENSE` and `CODEOWNERS` _are_ included, because GitHub does not inherit
-those — a repo without a LICENSE is all-rights-reserved whatever the org intends.
-
-## CI gates
-
-`.github/workflows/docs.yml` runs on every PR:
-
-| Gate              | What it catches                                                      |
-| ----------------- | -------------------------------------------------------------------- |
-| No committed plans | a plan slipped into a PR; `.gitignore` alone is advisory             |
-| Doc headers        | a spec without `Version:`/`Status:`, an ADR without `Deciders:`, a report without its "not verified" section |
-| Markdown lint      | structural markdown problems (org `.markdownlint-cli2.yaml`)        |
-| Link check         | relative cross-links broken by a rename (org `.lychee.toml`)         |
+Apache-2.0 — see [LICENSE](LICENSE).
 
 ---
 
-_Assisted-By: Claude Code_
+_Assisted-By: GLM 5.3_
