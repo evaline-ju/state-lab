@@ -1,6 +1,15 @@
 # state-lab
 
-Runnable demos for the [Rossoctl](https://github.com/rossoctl) agentic platform.
+This repo collects a set of demo flows exercising various state requirements, from
+durability to passability.
+
+Agents are becoming more distributed — cooperating processes spread across machines,
+sessions, and lifetimes (see the [moca](https://github.com/rossoctl/moca) repo) — and
+increasingly externalize their state into files, stores, and services rather than
+their own context windows. Once state lives outside the agent, the hard questions
+land on the platform: where does state live, who owns it, what happens when a process
+dies mid-task, or when two agents disagree about what's true?
+
 Everything here is meant to be **run by hand from its README** — demos are published,
 iterated on, and kept honest by being executed, not just described.
 
@@ -19,13 +28,13 @@ line of inquiry, each demo inside it self-contained.
 
 - A demo's README is its entry point: prerequisites, setup, what to observe, teardown.
 - Measured results go in the track's `FINDINGS.md` (append-only), not into README prose.
-- AI agents: [`CLAUDE.md`](CLAUDE.md) (Claude Code) and [`AGENTS.md`](AGENTS.md)
-  (pi, Codex) carry the conventions.
+- AI agents: [`AGENTS.md`](AGENTS.md) carries the conventions — read natively by
+  Claude Code, pi, and Codex.
 
 ## Contributing and governance
 
-This repository is part of the [Rossoctl](https://github.com/rossoctl) project:
-[`GOVERNANCE.md`](GOVERNANCE.md) indexes the project-wide documents, and
+This is a line of research, not a platform component — but it still runs on project
+conventions: [`GOVERNANCE.md`](GOVERNANCE.md) indexes the project-wide documents, and
 [`CONTRIBUTING.md`](CONTRIBUTING.md) covers this repo's setup.
 
 ## License
