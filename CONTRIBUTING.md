@@ -1,62 +1,62 @@
-# Contributing to <PROJECT>
+# Contributing to state-lab
 
 The **contribution process** — how to claim an issue, how review works, how to become a
 maintainer, and the code of conduct — is documented once for the whole project in
 [`rossoctl/rossoctl`](https://github.com/rossoctl/rossoctl/blob/main/CONTRIBUTING.md). See
 [`GOVERNANCE.md`](GOVERNANCE.md) for the full index.
 
-This file covers only what is **specific to this repo**: how to build it, test it, and what
+This file covers only what is **specific to this repo**: how to run its demos and what
 its conventions are.
 
 ## Prerequisites
 
-<!-- Replace with this repo's real prerequisites. -->
-
-- <language/toolchain and minimum version>
+- bash
 - [pre-commit](https://pre-commit.com/#install) (git hooks)
+- Per-demo prerequisites (docker, kind, a harness, …) are listed in each demo's README —
+  a demo that needs something says so at the top.
 
 ## Setup
 
 ```sh
-git clone https://github.com/rossoctl/<PROJECT>.git
-cd <PROJECT>
+git clone https://github.com/rossoctl/state-lab.git
+cd state-lab
 
-# Install the git hooks. The commit-msg hook is required: it rewrites AI
-# Co-Authored-By trailers to the project's Assisted-By convention.
+# Install the git hooks (gitleaks secret scanning).
 pre-commit install
-pre-commit install --hook-type commit-msg
-
-# <build / dependency install command>
 ```
 
-## Test and lint
+## Running and checking
+
+There is nothing to build and no test suite: **demos are run, not tested**. A demo's
+README is its plan — prerequisites, `setup.sh`, what to observe, `teardown.sh`. A demo
+is considered Validated when someone other than its author has run its README end to
+end.
 
 ```sh
-# <test command>
-# <lint command>
-
-# The docs/ convention's own gates (CI runs these too):
-./scripts/check-no-committed-plans.sh
-./scripts/check-doc-headers.sh
+pre-commit run --all-files   # gitleaks — the only automated gate
 ```
 
-## Documentation
+## Adding a demo
 
-This repo uses the rossoctl documentation convention. **If you are adding or changing a
-document, read [`docs/README.md`](docs/README.md) first** — it decides where each kind of
-document goes. The three rules that most often catch people out:
+Demos live under [`docs/demos/`](docs/demos/), one directory per track. The pattern:
 
-1. **Never commit a plan.** `docs/plans/` is local-only and CI enforces it. Move anything
-   durable into a spec, ADR or report before deleting your plan.
-2. **Specs are edited when reality corrects them; reports never are.** A report is
-   append-only — it is the evidence of what actually happened, including wrong predictions.
-3. **ADRs are immutable.** Supersede with a new one rather than editing.
+```
+docs/demos/<track>/
+├── README.md      # the track's question + a table of its demos, with status
+├── FINDINGS.md    # measured results — append-only, never rewritten
+├── scratch.md     # unformed ideas, promoted into demo dirs when built
+└── <demo>/        # README (entry point) + setup.sh/teardown.sh + code
+```
+
+When you add a demo, add its row to the track README's table. Record what you measured
+in `FINDINGS.md`, not in the demo's README — a README makes claims, FINDINGS records
+what actually happened.
 
 ## Commits
 
 - Conventional-commit style subject (`feat:`, `fix:`, `docs:`, `chore:`).
-- The trailer is **`Assisted-By:`**, not `Co-Authored-By:`. The `commit-msg` hook rewrites it
-  for you, which is why installing hooks is not optional.
+- The trailer is **`Assisted-By:`**, not `Co-Authored-By:`. There is no hook rewriting
+  it in this repo — write it correctly the first time.
 
 ---
 
