@@ -17,9 +17,9 @@ line of inquiry, each demo inside it self-contained.
 
 | Track | What it explores | Status |
 | ----- | ---------------- | ------ |
-| [`TODO-track`](docs/demos/TODO-track/) | TODO | Stub |
+| [`subagents`](docs/demos/subagents/) | Dispatching subagent work and the state it carries | Live |
 
-<!-- One row per track. Rename TODO-track/ once the first track is named. -->
+<!-- One row per track. -->
 
 ## Working here
 

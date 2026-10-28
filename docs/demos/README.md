@@ -5,9 +5,9 @@ A **demo** is a self-contained directory.
 
 | Track | What it explores | Demos |
 | ----- | ---------------- | ----- |
-| [`TODO-track/`](TODO-track/) | TODO | 0 |
+| [`subagents/`](subagents/) | Dispatching subagent work and the state it carries | 1 |
 
-<!-- One row per track. Rename TODO-track/ once the first track is named. -->
+<!-- One row per track. -->
 
 ## The per-track pattern
 

@@ -1,6 +1,10 @@
 # Claude Code local config. Keep this: in a sandboxed setup the launcher copies global
 # settings -- which can carry tokens -- into the project's .claude/.
 .claude/
+# Negation for demos that intentionally ship `.claude/skills/` as content (e.g. config
+# bundles under `docs/demos/*/*/bundles/`), not as local Claude Code state.
+!docs/demos/**/bundles/**/.claude/
+!docs/demos/**/bundles/**/.claude/**
 
 # Secrets and credentials
 .env
