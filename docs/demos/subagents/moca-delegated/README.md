@@ -147,6 +147,11 @@ re-running. Three things it fixes along the way worth knowing about:
   `namespace: serverless-harness`, but MOCA's supervisor egress NetworkPolicy
   only allows the namespace literally named `context-service`. The script
   rewrites the namespace before `kubectl apply`.
+- **Redis → Valkey swap.** MOCA's deploy pins `redis:7-alpine` (floating
+  tag that now ships Redis 8.x under RSALv2/SSPLv1). The script patches the
+  Redis StatefulSet to `valkey/valkey:9-alpine` (BSD-3, LF-maintained fork)
+  — MOCA uses only core RESP + Lua + Streams, all supported by Valkey. Set
+  `VALKEY_IMAGE=` to override.
 
 The `moca-context-service` Secret's `token` key is required by MOCA but
 not currently enforced by Context Service — the script uses a placeholder.

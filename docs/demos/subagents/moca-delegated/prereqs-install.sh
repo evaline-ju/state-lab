@@ -67,14 +67,14 @@ if [[ -z "$(ls -A "${MOCA_DIR}/pi-fork" 2>/dev/null)" ]]; then
   exit 1
 fi
 
-echo "==> 1/6 kind cluster ${KIND_CLUSTER}"
+echo "==> 1/7 kind cluster ${KIND_CLUSTER}"
 if ! kind get clusters 2>/dev/null | grep -Fxq "${KIND_CLUSTER}"; then
   kind create cluster --name "${KIND_CLUSTER}"
 else
   echo "    cluster ${KIND_CLUSTER} already exists, reusing"
 fi
 
-echo "==> 2/6 MOCA deploy/k8s/setup.sh"
+echo "==> 2/7 MOCA deploy/k8s/setup.sh"
 # SH_WORKLOAD_SANDBOXES=1 turns on moca-provisioner: workloads created with
 # `--sandboxes N` get their own StatefulSet + PVC, instead of running on the
 # shared pool with a per-run writable overlay. Needs Kubernetes 1.30+ (kind
@@ -84,14 +84,42 @@ echo "==> 2/6 MOCA deploy/k8s/setup.sh"
   SH_WORKLOAD_SANDBOXES=1 SH_PUBLIC_HARNESS_URL="${HARNESS_URL}" \
   ./deploy/k8s/setup.sh --target kind --build)
 
-echo "==> 3/6 CoreDNS -> 1.1.1.1 / 8.8.8.8 (podman resolv.conf workaround)"
+echo "==> 3/7 Swap Redis StatefulSet image for Valkey"
+# state-lab's house choice: run the RESP backend on Valkey (BSD-3, LF-maintained
+# fork) instead of docker.io/redis (RSALv2/SSPLv1 since 7.4). MOCA uses only
+# core RESP + Lua + Streams, all supported by Valkey. Pre-load the image via
+# `ctr import --platform` to dodge the kind-load fat-manifest bug on Apple
+# Silicon; then patch the StatefulSet off MOCA's redis digest to the Valkey tag.
+VALKEY_IMAGE="${VALKEY_IMAGE:-valkey/valkey:9-alpine}"
+VALKEY_PLATFORM="${VALKEY_PLATFORM:-linux/$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')}"
+docker pull --platform "${VALKEY_PLATFORM}" "${VALKEY_IMAGE}" >/dev/null
+docker save "${VALKEY_IMAGE}" | \
+  docker exec -i "${KIND_CLUSTER}-control-plane" ctr --namespace=k8s.io images import \
+    --platform "${VALKEY_PLATFORM}" - >/dev/null
+# Patch the StatefulSet (dropping the digest pin, imagePullPolicy=Never so
+# kubelet uses the loaded image).
+kubectl --context "${KUBE_CONTEXT}" -n moca patch statefulset redis --type=json \
+  -p='[{"op":"replace","path":"/spec/template/spec/containers/0/image","value":"'"${VALKEY_IMAGE}"'"},
+       {"op":"replace","path":"/spec/template/spec/containers/0/imagePullPolicy","value":"Never"}]' >/dev/null
+# A pre-existing redis-0 may have an RDB from the prior Redis image that Valkey
+# can't read (`Can't handle RDB format version 12`); nuke the PVC so Valkey
+# starts fresh. This is the first install of the day on this cluster, so there
+# is nothing to preserve.
+if kubectl --context "${KUBE_CONTEXT}" -n moca get pvc data-redis-0 >/dev/null 2>&1; then
+  kubectl --context "${KUBE_CONTEXT}" -n moca scale statefulset redis --replicas=0 >/dev/null
+  kubectl --context "${KUBE_CONTEXT}" -n moca delete pvc data-redis-0 --wait=true >/dev/null
+  kubectl --context "${KUBE_CONTEXT}" -n moca scale statefulset redis --replicas=1 >/dev/null
+fi
+kubectl --context "${KUBE_CONTEXT}" -n moca rollout status statefulset/redis --timeout=90s
+
+echo "==> 4/7 CoreDNS -> 1.1.1.1 / 8.8.8.8 (podman resolv.conf workaround)"
 # Idempotent: if forward is already patched, this is a no-op apply.
 kubectl --context "${KUBE_CONTEXT}" -n kube-system get configmap coredns -o yaml |
   sed 's#forward \. /etc/resolv.conf#forward . 1.1.1.1 8.8.8.8#' |
   kubectl --context "${KUBE_CONTEXT}" apply -f - >/dev/null
 kubectl --context "${KUBE_CONTEXT}" -n kube-system rollout restart deployment/coredns >/dev/null
 
-echo "==> 4/6 Context Service image + manifest"
+echo "==> 5/7 Context Service image + manifest"
 # ghcr.io/rossoctl/context-service:latest is private (403 anonymous).
 # Build and load; set imagePullPolicy: Never so the kubelet uses the
 # loaded tag instead of trying to pull.
@@ -119,7 +147,7 @@ kubectl --context "${KUBE_CONTEXT}" -n context-service \
 kubectl --context "${KUBE_CONTEXT}" -n context-service \
   rollout status deployment/context-service --timeout=90s
 
-echo "==> 5/6 moca-context-service ConfigMap + Secret (both sides of the token)"
+echo "==> 6/7 moca-context-service ConfigMap + Secret (both sides of the token)"
 # The supervisor sends this token as Bearer; context-service reads its expected
 # value from secret context-service/context-service-control-plane (key `token`).
 # If that secret is missing, context-service accepts no token and returns 401
@@ -146,7 +174,7 @@ kubectl --context "${KUBE_CONTEXT}" -n context-service rollout status deployment
 kubectl --context "${KUBE_CONTEXT}" -n moca rollout restart deployment/moca-supervisor >/dev/null
 kubectl --context "${KUBE_CONTEXT}" -n moca rollout status deployment/moca-supervisor --timeout=90s
 
-echo "==> 6/6 Background port-forwards (supervisor, control plane, context-service)"
+echo "==> 7/7 Background port-forwards (supervisor, control plane, context-service)"
 # Why these three: mocactl talks to the control plane and the harness
 # (supervisor), and the client-side bundle upload during `mocactl workloads
 # create` targets context-service's public URL. The harness local port is
