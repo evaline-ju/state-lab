@@ -92,8 +92,8 @@ alone.
   curl -fsSL https://raw.githubusercontent.com/rossoctl/moca/main/scripts/install-mocactl.sh | MOCACTL_VERSION=v0.9.0 sh
   ```
   `./setup.sh` probes all four and refuses to run on an older build.
-  Tested against `v0.9.0`; `MOCACTL_VERSION=edge` picks up the latest
-  main.
+  Tested against `v0.9.0` and `edge-dd918ac`; `MOCACTL_VERSION=edge`
+  picks up the latest main.
 - [`contextctl`](https://github.com/rossoctl/context-service) v0.3.0+
   with the `ctx pack` subcommand (build from main — `make build` — until
   a release ships). The upstream `moca-delegate-task` skill assumes
@@ -116,8 +116,8 @@ Context Service at `$CLONE_DIR/context-service`. Required — there is no
 default.
 
 The MOCA checkout must be at or after
-[`dd918ac`](https://github.com/rossoctl/moca/commit/dd918ac9), which
-deploys Valkey 9 (`valkey/valkey:9-alpine`, BSD-3) as the session store.
+[`dd918ac`](https://github.com/rossoctl/moca/commit/dd918ac9) (later
+than `v0.9.0`), which deploys Valkey 9 as the session store.
 
 ### Install the cluster-side pieces
 
@@ -197,8 +197,8 @@ mocactl doctor
 From this directory:
 
 ```bash
-./setup.sh                  # Claude Code (default)
-PARENT=opencode ./setup.sh  # OpenCode
+CLONE_DIR=<parent-of-both-checkouts> ./setup.sh                  # Claude Code (default)
+CLONE_DIR=<parent-of-both-checkouts> PARENT=opencode ./setup.sh  # OpenCode
 ```
 
 This:
@@ -207,8 +207,8 @@ This:
    including probes that `mocactl` has the `workloads` subcommand and
    the flags the demo uses: `--label`, `--sandboxes`, `--prompt-file`)
    and that the `moca` namespace exists.
-2. Runs `mocactl doctor` against the port-forwards — reachability,
-   login, credential, harness, and an end-to-end scratch session.
+2. Runs `mocactl doctor` against the port-forwards, then probes
+   Context Service's public URL.
 3. Stages the scratch dir at `~/tmp/moca-chained-scratch/` **as the
    project**: the fixture flattens into the scratch root alongside the
    parent agent's config (`.claude/settings.json` for Claude Code —
@@ -219,10 +219,12 @@ This:
    and `results/` so `contextctl ctx pack .` captures only the project.
    The two port-forward URLs are recorded in `MOCA.md` and printed by
    `setup.sh` for by-hand shells.
+4. Promotes `bundles/public-only/` and `bundles/full/` with `mocactl
+   promote` and writes both digests to `MOCA.md`.
 
-Setup creates **no workload, no session, and seeds nothing per pod** —
-the agent packs the scratch dir and runs `mocactl workloads create
---sandboxes 1 --mount read-only|writable` at dispatch (per leaf). Each
+Workloads and sessions are created per leaf at dispatch: the agent
+packs the scratch dir and runs `mocactl workloads create --sandboxes 1
+--mount read-only|writable`. Each
 workload gets its own sandbox pod and PVC under `moca-sandbox`, seeded
 from the frozen revision; `mocactl spawn --workload <id>` creates the
 session. The agent deletes the workload after collecting the result.
@@ -294,7 +296,8 @@ WLID=$(mocactl subagents --tag moca-chained-subagents-demo --json \
 mocactl workloads get "$WLID" --json | jq '{status,contextType,revision}'
 ```
 
-`status` progresses `creating → awaiting_upload → ready`; `revision`
+`status` progresses `creating → awaiting_upload → provisioning →
+ready`; `revision`
 is the sha256 of the files.
 
 *Peek at the per-workload pod and PVC:* `mocactl workloads create`
@@ -325,7 +328,7 @@ subagents --tag moca-chained-subagents-demo --json` (filtering by
 `.label=="diagnose"`), runs `mocactl get <sessionId> --out results
 --json`, and branches on `status`: `queued` → "still running", stop;
 `responded` → read `results/<sessionId>.text`, surface the diagnosis,
-run `mocactl workloads delete "$WORKLOAD_ID"`.
+and delete the workload (`./teardown.sh` deletes any left over).
 
 *Peek at state:* same handles, from the operator's shell:
 
@@ -356,7 +359,7 @@ that PVC.
 
 The agent collects the fix leaf (filtering ledger by
 `.label=="fix"`), surfaces the change and test outcome (`Ran 1 test /
-OK`), then deletes the workload. Each leaf is a separate session;
+OK`), and should delete the workload. Each leaf is a separate session;
 between them, only prompt text flows (via `--prompt-file`).
 
 ### Observe the chain
@@ -384,12 +387,11 @@ server-side identity.
 While leaves run, in another terminal:
 
 ```bash
-kubectl -n moca get pods
+kubectl -n moca-sandbox get pods
 kubectl -n moca logs -f deploy/moca-supervisor
 ```
 
-The supervisor and sandbox pods are **warm** — the work lands in a
-sandbox pod your laptop never touches. Control plane and supervisor
+Each leaf runs in its workload's pod in `moca-sandbox`. Control plane and supervisor
 emit one JSON audit line per lifecycle event (identifiers only — no
 prompt text, file contents, or credentials); grep by sessionId:
 
@@ -453,21 +455,16 @@ nothing lives in the parent agent's session identifier.
 
 **Caveats.**
 
-- **The 24h TTL is the only deadline.** `/v1/runs` leaves are not
-  swept for inactivity — there is no "unwatched" abort anymore — but
-  the stored result expires after 24h regardless of whether it was
-  collected.
+- **The 24h TTL is the only deadline.** The stored result expires
+  after 24h, collected or not.
 - **`unknown` is an infrastructure outcome, not a finding.** It means
   the worker died before the server recorded anything (port-forward
   down at dispatch). A supervisor restart mid-run is now reaped as
   `failed` / `owner_lost` within ~30–100 s, not `unknown`. Either way,
   re-dispatch under a fresh `--label`.
-- **A leaf that runs longer than five minutes looks failed locally.**
-  The spawn worker's sync `POST /v1/runs` carries Node's default
-  300-second response timeout, so `subagents` records
-  `failed: fetch failed` at the five-minute mark while the run keeps
-  going server-side — and stays collectable with `get`. Trust `get`,
-  not the ledger state.
+- **Leaves over five minutes show `running` until reconciled.** The
+  spawn worker's `POST /v1/runs` times out at 300 s; the run continues
+  server-side and `subagents` picks up its final state.
 - **`teardown.sh` makes stored results unreachable.** It deletes
   this tag's sessions (and any live workloads). Collect what you
   care about first.
@@ -480,8 +477,8 @@ nothing lives in the parent agent's session identifier.
 
 This deletes every leaf session of this demo's tag
 (`mocactl subagents --tag` → `mocactl sessions delete` for each),
-deletes any workloads still live from the ledger (normally none —
-the agent deletes each workload after collecting its leaf's result),
+deletes any workloads still live from the ledger, removes this demo's
+per-session dirs from the sandbox pods, deletes the two config bundles,
 and removes the scratch directory. It does **not** touch MOCA, Context
 Service, your cluster, your `mocactl` login, or the backgrounded
 port-forwards. For a full tear-down (demo state + port-forwards + kind

@@ -237,11 +237,8 @@ writable copy is gone when the run ends.
 mocactl subagents --tag "$TAG"
 ```
 
-Both leaves should show `done` — unless one ran longer than five minutes:
-the spawn worker's own HTTP request is cut off at the five-minute mark, so
-a long leaf shows up here as `failed` / `fetch failed` even though it
-completed server-side (see "Pause and resume" in the README). `mocactl get`
-is the source of truth: `responded` means it finished.
+Both leaves should show `done`; one that ran over five minutes may show
+`running` until reconciled. `mocactl get` is the source of truth: `responded` means it finished.
 
 **7 — tear down:**
 
