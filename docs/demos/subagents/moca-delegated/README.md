@@ -265,8 +265,13 @@ OpenCode — the wrapper exports `SH_CONTROL_PLANE_URL` /
 ~/tmp/moca-chained-scratch/run-opencode.sh
 ```
 
-In a side terminal, export the port-forward URLs so `mocactl` can
-reach MOCA (also printed by `setup.sh`):
+In a side terminal, `./watch.sh` follows the run: one line per
+workload StatefulSet, pod and status change, and per leaf state
+change, for leaves submitted after it starts.
+
+For the by-hand "Peek at state" commands below, export the
+port-forward URLs so `mocactl` can reach MOCA (also printed by
+`setup.sh`):
 
 ```bash
 cd ~/tmp/moca-chained-scratch
