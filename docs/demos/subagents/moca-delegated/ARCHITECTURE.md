@@ -26,7 +26,7 @@ flowchart LR
     LEDGER[("~/.local/state/mocactl/<br/>subagents.jsonl")]
     WORKER["detached worker per leaf<br/>holds sync POST /v1/runs"]
     AUTH[("~/.config/mocactl<br/>tokens — Read DENIED")]:::denied
-    PF{{"port-forwards<br/>8080 harness · 8090 control plane · 9090 context-service"}}
+    PF{{"port-forwards<br/>18080 harness · 18090 control plane · 19090 context-service"}}
   end
 
   subgraph cluster["kind cluster"]

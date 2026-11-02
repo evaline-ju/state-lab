@@ -12,11 +12,11 @@ gets stuck.
   (a proxy idle timeout?)".** A port-forward isn't running, or its
   pinned pod rotated and the forward died mid-flight (common after any
   cluster-side restart). `prereqs-install.sh` backgrounds all three —
-  supervisor on 8080, control plane on 8090, Context Service on 9090.
+  supervisor on 18080, control plane on 18090, Context Service on 19090.
   Check they are up with
   `pgrep -f 'kubectl --context kind-moca .* port-forward'` (expect
   three PIDs) and that something is listening on each port
-  (`lsof -nP -iTCP:8090 -sTCP:LISTEN`); tail the logs under
+  (`lsof -nP -iTCP:18090 -sTCP:LISTEN`); tail the logs under
   `~/.local/state/moca-chained-demo/` for why one died — a `kubectl
   port-forward` process whose pod was replaced logs `error forwarding
   port … failed to find sandbox` and `lost connection to pod`, and may
@@ -101,8 +101,8 @@ cd ~/tmp/moca-chained-scratch
 
 # mocactl reaches MOCA through the port-forwards (both must be up).
 # Export the two URLs (setup.sh prints these; they're also in MOCA.md):
-export SH_CONTROL_PLANE_URL=http://127.0.0.1:8090
-export SH_HARNESS_URL=http://127.0.0.1:8080
+export SH_CONTROL_PLANE_URL=http://127.0.0.1:18090
+export SH_HARNESS_URL=http://127.0.0.1:18080
 
 # Constant tag — scopes `mocactl subagents --tag` and teardown to
 # this demo's leaves on the machine-global ledger.
@@ -237,11 +237,8 @@ writable copy is gone when the run ends.
 mocactl subagents --tag "$TAG"
 ```
 
-Both leaves should show `done` — unless one ran longer than five minutes:
-the spawn worker's own HTTP request is cut off at the five-minute mark, so
-a long leaf shows up here as `failed` / `fetch failed` even though it
-completed server-side (see "Pause and resume" in the README). `mocactl get`
-is the source of truth: `responded` means it finished.
+Both leaves should show `done`; one that ran over five minutes may show
+`running` until reconciled. `mocactl get` is the source of truth: `responded` means it finished.
 
 **7 — tear down:**
 
