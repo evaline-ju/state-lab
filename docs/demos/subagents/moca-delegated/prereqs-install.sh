@@ -17,10 +17,13 @@
 #      context-service public URL) with logs under
 #      ~/.local/state/moca-chained-demo/. prereqs-uninstall.sh kills
 #      them by matching on `kubectl --context kind-moca ... port-forward`.
+#   7. Mint an operator login inside the control-plane pod (no GitHub device
+#      flow) into a demo-local mocactl config dir. The operator points
+#      mocactl at it with XDG_CONFIG_HOME; ~/.config/mocactl is untouched.
 #
 # What it does NOT do (keep these as operator steps, see README):
 #   - Install mocactl / contextctl / kubectl / jq / kind / podman.
-#   - mocactl login, credential add, doctor.
+#   - credential add, doctor.
 #   - Run this demo's own setup.sh.
 
 set -euo pipefail
@@ -43,10 +46,11 @@ CP_PORT="${CP_PORT:-18090}"
 CS_PORT="${CS_PORT:-19090}"
 HARNESS_URL="http://127.0.0.1:${HARNESS_PORT}"
 
-if [[ -z "${SH_GITHUB_CLIENT_ID:-}" ]]; then
-  echo "SH_GITHUB_CLIENT_ID is required (GitHub OAuth app, device-flow enabled)." >&2
-  exit 1
-fi
+# Control plane refuses to boot without SH_GITHUB_CLIENT_ID, but this demo's token-mint
+# path (step 7 below) bypasses the GitHub device flow entirely — the client id is set but
+# never used. A dummy value is fine; a real one still works.
+SH_GITHUB_CLIENT_ID="${SH_GITHUB_CLIENT_ID:-demo-not-used}"
+export SH_GITHUB_CLIENT_ID
 
 for d in "${MOCA_DIR}" "${CONTEXT_SERVICE_DIR}"; do
   if [[ ! -d "${d}" ]]; then
@@ -221,21 +225,69 @@ probe_pf "${HARNESS_PORT}" moca-supervisor
 probe_pf "${CP_PORT}"      moca-control-plane
 probe_pf "${CS_PORT}"      context-service
 
+echo "==> Minting an operator login (no GitHub device flow)"
+# A device-flow `mocactl login` would need a real SH_GITHUB_CLIENT_ID and a
+# browser. Instead, mint the api token a login would return INSIDE the
+# control-plane pod, signed with its own key — the key never leaves the pod
+# (same path deploy/k8s/smoke.sh uses). Write it to a demo-local mocactl
+# config dir so the operator's real ~/.config/mocactl is left untouched.
+MOCA_NS="${MOCA_NS:-moca}"
+DEMO_SUBJECT="${DEMO_SUBJECT:-demo:operator}"
+DEMO_TOKEN_TTL="${DEMO_TOKEN_TTL:-28800}"   # 8h; a re-run re-mints
+DEMO_CONFIG_HOME="${DEMO_CONFIG_HOME:-${HOME}/.local/state/moca-chained-demo/mocactl-config}"
+DEMO_CONFIG_DIR="${DEMO_CONFIG_HOME}/mocactl"
+
+api="$(kubectl --context "${KUBE_CONTEXT}" -n "${MOCA_NS}" exec deploy/moca-control-plane -c control-plane -- \
+  node --import tsx --input-type=module -e \
+  "import { readFileSync } from 'node:fs'; import { makeSigner } from './src/token.ts';
+   const s = makeSigner(readFileSync('/run/credentials/SH_SESSION_TOKEN_PRIVATE_KEY', 'utf8'));
+   process.stdout.write(s.mint({ sub: '${DEMO_SUBJECT}', tenant: '${DEMO_SUBJECT}', roles: [], scope: ['api'], ttlSeconds: ${DEMO_TOKEN_TTL} }));")"
+if [[ -z "${api}" ]]; then
+  echo "    could not mint an api token in the control-plane pod" >&2
+  exit 1
+fi
+
+# auth.json: the shape packages/mocactl/src/config.ts loadAuth() validates.
+# No refreshToken — the token is TTL-bounded; re-run this script to re-mint.
+mkdir -p "${DEMO_CONFIG_DIR}"
+chmod 700 "${DEMO_CONFIG_HOME}" "${DEMO_CONFIG_DIR}"
+now="$(date +%s)"
+jq -nc --arg t "${api}" --arg sub "${DEMO_SUBJECT}" --arg cp "http://127.0.0.1:${CP_PORT}" \
+  --argjson exp "$((now + DEMO_TOKEN_TTL))" \
+  '{apiToken:$t, subject:$sub, roles:[], expiresAt:$exp, controlPlaneUrl:$cp}' \
+  >"${DEMO_CONFIG_DIR}/auth.json"
+chmod 600 "${DEMO_CONFIG_DIR}/auth.json"
+# config.json: pin the two endpoints so mocactl needs no env vars for them.
+jq -nc --arg cp "http://127.0.0.1:${CP_PORT}" --arg harness "${HARNESS_URL}" \
+  '{controlPlaneUrl:$cp, harnessUrl:$harness}' \
+  >"${DEMO_CONFIG_DIR}/config.json"
+chmod 600 "${DEMO_CONFIG_DIR}/config.json"
+echo "    login for ${DEMO_SUBJECT} written to ${DEMO_CONFIG_DIR} (ttl ${DEMO_TOKEN_TTL}s)"
+
 cat <<EOF
 
 Prereqs installed. Port-forwards are running in the background; logs:
   ${PF_LOG_DIR}/
 
-Next, once per machine:
+An operator login was minted (no GitHub device flow) into a demo-local
+mocactl config dir. Point mocactl at it — do this in the shell you run
+./setup.sh from AND the shell you launch the parent agent from, so the
+minted login is inherited:
 
-  export SH_CONTROL_PLANE_URL=http://127.0.0.1:${CP_PORT}
-  mocactl login
+  export XDG_CONFIG_HOME=${DEMO_CONFIG_HOME}
+
+Then add the model credential once (control plane + harness URLs are already
+pinned in that config.json, so no SH_CONTROL_PLANE_URL export is needed):
+
   # ANTHROPIC_BASE_URL points at an Anthropic-compatible endpoint (e.g. a
   # LiteLLM gateway); ANTHROPIC_AUTH_TOKEN is the bearer token for it.
   printf %s "\$ANTHROPIC_AUTH_TOKEN" | mocactl credentials add anthropic \\
     --host "\$(printf %s "\$ANTHROPIC_BASE_URL" | awk -F/ '{print \$3}')" --kind bearer \\
     --endpoint "\$ANTHROPIC_BASE_URL"
   mocactl doctor
+
+The minted token is TTL-bounded (${DEMO_TOKEN_TTL}s) and does not refresh;
+re-run ./prereqs-install.sh to mint a fresh one.
 
 Then run this demo's ./setup.sh.
 

@@ -45,7 +45,8 @@ Four pieces cooperate:
    details (pack `.`, tag every spawn `moca-chained-subagents-demo`)
    come from the operator's prompts, not the skill.
 2. **`mocactl`** — the official MOCA client on your `PATH`. Owns all
-   auth in `~/.config/mocactl`. Provides `spawn` / `get` / `subagents`
+   auth in its config dir (this demo points it at a demo-local one via
+   `XDG_CONFIG_HOME`). Provides `spawn` / `get` / `subagents`
    for sessions, `workloads create / get / delete` for the per-leaf
    context-service bundle, and `promote` / `bundles delete` for config
    bundles.
@@ -122,10 +123,13 @@ than `v0.9.0`), which deploys Valkey 9 as the session store.
 ### Install the cluster-side pieces
 
 ```bash
-SH_GITHUB_CLIENT_ID=<your-oauth-client-id> \
-CLONE_DIR=<parent-of-both-checkouts> \
-  ./prereqs-install.sh
+CLONE_DIR=<parent-of-both-checkouts> ./prereqs-install.sh
 ```
+
+No GitHub OAuth app is needed. The control plane still refuses to boot
+without `SH_GITHUB_CLIENT_ID`, so the script sets a dummy value — this demo
+mints its operator login inside the control-plane pod (step 7 below)
+instead of running the device flow, so the client id is never used.
 
 The script creates a kind cluster `moca`, runs MOCA's `deploy/k8s/setup.sh`
 with `SH_WORKLOAD_SANDBOXES=1` (installs `moca-provisioner` and the
@@ -173,9 +177,14 @@ along with the cluster, use `./prereqs-uninstall.sh`.
 
 ### Log in (once per machine)
 
+`prereqs-install.sh` already minted the operator login — the api token a
+device flow would have returned, signed inside the control-plane pod — into
+a demo-local mocactl config dir (default
+`~/.local/state/moca-chained-demo/mocactl-config`). Point mocactl at it,
+then add the model credential:
+
 ```bash
-export SH_CONTROL_PLANE_URL=http://127.0.0.1:18090
-mocactl login
+export XDG_CONFIG_HOME=~/.local/state/moca-chained-demo/mocactl-config
 # ANTHROPIC_BASE_URL points at an Anthropic-compatible endpoint (e.g. a
 # LiteLLM gateway); ANTHROPIC_AUTH_TOKEN is the bearer token for it.
 printf %s "$ANTHROPIC_AUTH_TOKEN" | mocactl credentials add anthropic \
@@ -183,6 +192,14 @@ printf %s "$ANTHROPIC_AUTH_TOKEN" | mocactl credentials add anthropic \
   --endpoint "$ANTHROPIC_BASE_URL"
 mocactl doctor
 ```
+
+Export `XDG_CONFIG_HOME` in the shell you run `./setup.sh` from **and** the
+shell you launch the parent agent from — the agent inherits it and reuses
+the same login. The control-plane and harness URLs are pinned in that dir's
+`config.json`, so no `SH_CONTROL_PLANE_URL` export is needed. The minted
+token is TTL-bounded (default 8h, `DEMO_TOKEN_TTL`) and does not refresh;
+re-run `./prereqs-install.sh` to mint a fresh one. Your real
+`~/.config/mocactl` login is left untouched.
 
 `--kind bearer` is required for Anthropic-compatible proxies that expect
 `Authorization: Bearer` (`--kind api-key` is only validated against
@@ -498,9 +515,10 @@ cluster), see `./prereqs-uninstall.sh` below.
 Runs `teardown.sh`, kills the three backgrounded port-forwards (matched
 by argv on `kubectl --context kind-moca ... port-forward`), and deletes
 the kind cluster `moca` — which takes MOCA, Context Service, loaded
-images, the CoreDNS patch, and all namespaces with it in one call. Does
-**not** touch your `mocactl` login + credentials or the two source
-checkouts; those are yours.
+images, the CoreDNS patch, and all namespaces with it in one call. It also
+removes the demo-local minted login (its signing cluster is gone). Does
+**not** touch your real `~/.config/mocactl` login + credentials or the two
+source checkouts; those are yours.
 
 ## Parent-agent differences
 
@@ -528,11 +546,15 @@ verifying the mechanics from a plain terminal) live in
 ## Security note
 
 This demo runs against a throwaway local cluster. MOCA's own auth is
-enabled, so leaves require a valid login — and the demo itself now
-stores **no secret anywhere**: tokens live in mocactl's own config
-dir (`~/.config/mocactl`), outside the demo, and setup no longer
-modifies any cluster-wide setting. Still: don't point it at anything
-you care about.
+enabled, so leaves require a valid login. Rather than run the GitHub
+device flow, `prereqs-install.sh` mints the api token inside the
+control-plane pod (the signing key never leaves the pod) and writes it
+to a **demo-local** mocactl config dir
+(`~/.local/state/moca-chained-demo/mocactl-config`), kept out of your
+real `~/.config/mocactl`. Both parents deny the agent read access to
+that dir, and `prereqs-uninstall.sh` deletes it. The minted token is a
+real api credential for this throwaway cluster, TTL-bounded (default
+8h); don't point the demo at anything you care about.
 
 Each workload gets its own StatefulSet and PVC under the
 `moca-sandbox` namespace, so two users' workloads do not share a

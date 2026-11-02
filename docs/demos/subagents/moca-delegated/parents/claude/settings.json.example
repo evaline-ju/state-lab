@@ -2,7 +2,8 @@
   "permissions": {
     "deny": [
       "Task",
-      "Read(~/.config/mocactl/**)"
+      "Read(~/.config/mocactl/**)",
+      "Read(~/.local/state/moca-chained-demo/mocactl-config/**)"
     ],
     "allow": [
       "Bash(rm -rf .moca-delegate)",

@@ -25,7 +25,7 @@ flowchart LR
     CTXCTL["contextctl<br/>(ctx pack @ dispatch time, per leaf)"]
     LEDGER[("~/.local/state/mocactl/<br/>subagents.jsonl")]
     WORKER["detached worker per leaf<br/>holds sync POST /v1/runs"]
-    AUTH[("~/.config/mocactl<br/>tokens — Read DENIED")]:::denied
+    AUTH[("demo-local mocactl config<br/>(~/.local/state/moca-chained-demo)<br/>minted token — Read DENIED")]:::denied
     PF{{"port-forwards<br/>18080 harness · 18090 control plane · 19090 context-service"}}
   end
 
@@ -182,7 +182,7 @@ deliberately stays a sequential chain.
 | Boundary | What it guarantees | What it does not |
 | --- | --- | --- |
 | In-process subagent tool (`Task` / `task`) denied + `moca-delegate-task` skill | Subagent work cannot run in-process on the laptop | — |
-| `mocactl` owns auth (`~/.config/mocactl`, Read-denied) | Demo stores no secret; no token plumbing | — |
+| `mocactl` owns auth (demo-local config dir, Read-denied) | Token is minted server-side into a demo-local config dir, not the operator's `~/.config/mocactl`; both are Read-denied to the agent | A minted token is a real api credential for the throwaway cluster — TTL-bounded, reaped on uninstall |
 | Promoted config bundle, sha256-pinned | The skills (and commands) a leaf boots with are content-addressed and server-held; two leaves can share one workload but differ in posture | Ships skills + commands only — a `CLAUDE.md` under the promoted dir is NOT included and does not travel to the sandbox |
 | Workload mount read-only (diagnose leaf) | The leaf cannot alter the frozen revision | — |
 | Workload mount writable (fix leaf) | Each workload gets its own PVC; edits persist across runs on that workload until the workload is deleted | A workload's edits are visible to any spawn on the same workload — a leaf cannot assume the PVC starts at the frozen revision mid-chain |

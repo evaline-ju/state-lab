@@ -7,9 +7,9 @@ gets stuck.
 
 ## Known failure modes
 
-- **`mocactl` can't reach the control plane / connection refused, or
-  `mocactl login` fails with "the control plane closed the connection
-  (a proxy idle timeout?)".** A port-forward isn't running, or its
+- **`mocactl` can't reach the control plane / connection refused, or a
+  command fails with "the control plane closed the connection (a proxy
+  idle timeout?)".** A port-forward isn't running, or its
   pinned pod rotated and the forward died mid-flight (common after any
   cluster-side restart). `prereqs-install.sh` backgrounds all three —
   supervisor on 18080, control plane on 18090, Context Service on 19090.

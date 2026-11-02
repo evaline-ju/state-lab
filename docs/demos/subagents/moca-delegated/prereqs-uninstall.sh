@@ -6,9 +6,11 @@
 #      `kubectl --context kind-moca ... port-forward`).
 #   3. Delete the kind cluster `moca` — one call wipes MOCA, Context
 #      Service, loaded images, the CoreDNS patch, and all namespaces.
+#   4. Remove the demo-local mocactl config dir (the operator login minted
+#      by prereqs-install.sh — the cluster that signed it is gone).
 #
 # Does NOT touch:
-#   - mocactl login + stored credentials (~/.config/mocactl)
+#   - your real mocactl login + stored credentials (~/.config/mocactl)
 #   - the moca/ and context-service/ source checkouts under CLONE_DIR
 #   - the port-forward log directory (~/.local/state/moca-chained-demo/)
 
@@ -46,12 +48,21 @@ else
   echo "    (cluster already gone)"
 fi
 
+# 4. Remove the demo-local minted login. The token was signed by the
+#    cluster just deleted, so it is dead weight now. Only this demo's dir —
+#    never the operator's real ~/.config/mocactl.
+DEMO_CONFIG_HOME="${DEMO_CONFIG_HOME:-${HOME}/.local/state/moca-chained-demo/mocactl-config}"
+if [[ -d "${DEMO_CONFIG_HOME}/mocactl" ]]; then
+  echo "==> Removing demo-local mocactl login (${DEMO_CONFIG_HOME})..."
+  rm -rf "${DEMO_CONFIG_HOME}"
+fi
+
 cat <<EOF
 
 Uninstall complete.
 
 Not touched (deliberately — they are yours):
-  - mocactl login and stored credentials (~/.config/mocactl)
+  - your real mocactl login and stored credentials (~/.config/mocactl)
   - the moca/ and context-service/ source checkouts under CLONE_DIR
   - port-forward logs (~/.local/state/moca-chained-demo/)
 EOF
