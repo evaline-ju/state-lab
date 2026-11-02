@@ -115,6 +115,10 @@ Set `CLONE_DIR` to the parent of both checkouts. The install script and
 Context Service at `$CLONE_DIR/context-service`. Required — there is no
 default.
 
+The MOCA checkout must be at or after
+[`dd918ac`](https://github.com/rossoctl/moca/commit/dd918ac9), which
+deploys Valkey 9 (`valkey/valkey:9-alpine`, BSD-3) as the session store.
+
 ### Install the cluster-side pieces
 
 ```bash
