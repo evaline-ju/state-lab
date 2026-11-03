@@ -110,10 +110,14 @@ git clone --recurse-submodules https://github.com/rossoctl/moca
 git clone https://github.com/rossoctl/context-service
 ```
 
-Set `CLONE_DIR` to the parent of both checkouts. The install script and
-`./setup.sh` both read it; MOCA is expected at `$CLONE_DIR/moca` and
-Context Service at `$CLONE_DIR/context-service`. Required — there is no
-default.
+`CLONE_DIR` must point at the parent of both checkouts and be exported in
+your shell — the install script and `./setup.sh` both read it; MOCA is
+expected at `$CLONE_DIR/moca` and Context Service at
+`$CLONE_DIR/context-service`. Required — there is no default.
+
+```bash
+export CLONE_DIR=<parent-of-both-checkouts>
+```
 
 The MOCA checkout must be at or after
 [`dd918ac`](https://github.com/rossoctl/moca/commit/dd918ac9) (later
@@ -136,10 +140,13 @@ cd "$CLONE_DIR/state-lab/docs/demos/subagents/moca-delegated"
 export ANTHROPIC_BASE_URL=<your-anthropic-base-url>
 export ANTHROPIC_AUTH_TOKEN=<your-anthropic-auth-token>
 
-SH_GITHUB_CLIENT_ID=<your-oauth-client-id> \
-CLONE_DIR=<parent-of-both-checkouts> \
-  ./prereqs-install.sh
+SH_TEST_USERS=1 ./prereqs-install.sh
 ```
+
+The demo logs in with a synthetic test user (`test:1`) gated by
+`SH_TEST_USER_SECRET` (a fixed demo constant — `state-lab-demo-secret` —
+used by both the install script and `mocactl login`) — no external
+identity provider needed.
 
 The script creates a kind cluster `moca`, runs MOCA's `deploy/k8s/setup.sh`
 with `SH_WORKLOAD_SANDBOXES=1` (installs `moca-provisioner` and the
@@ -187,17 +194,25 @@ along with the cluster, use `./prereqs-uninstall.sh`.
 
 ### Log in (once per machine)
 
+Log in as the test user the install step configured (the same fixed
+`SH_TEST_USER_SECRET` the demo uses).
+
 ```bash
 export SH_CONTROL_PLANE_URL=http://127.0.0.1:18090
+export SH_TEST_USER_SECRET=state-lab-demo-secret
 # The demo uses a **fixed Anthropic model** – `claude-opus-4-8`.
 # This model cannot be overridden via any command‑line flag at the moment.
-mocactl login
+MOCA_TEST_USER_SECRET="$SH_TEST_USER_SECRET" mocactl login --test-user 1
 printf %s "$ANTHROPIC_AUTH_TOKEN" | mocactl credentials add anthropic \
   --host "$(printf %s "$ANTHROPIC_BASE_URL" | awk -F/ '{print $3}')" --kind bearer \
   --endpoint "$ANTHROPIC_BASE_URL"
 
 mocactl doctor
 ```
+
+`mocactl login --test-user 1` writes the standard `~/.config/mocactl/auth.json`,
+so token refresh, `doctor`, `credentials`, `spawn`, and `workloads` all
+behave exactly as with any other login.
 
 `--kind bearer` is required for Anthropic-compatible proxies that expect
 `Authorization: Bearer` (`--kind api-key` is only validated against
@@ -212,8 +227,8 @@ mocactl doctor
 From this directory:
 
 ```bash
-CLONE_DIR=<parent-of-both-checkouts> ./setup.sh                  # Claude Code (default)
-CLONE_DIR=<parent-of-both-checkouts> PARENT=opencode ./setup.sh  # OpenCode
+./setup.sh                                                  # Claude Code (default)
+PARENT=opencode ./setup.sh                                  # OpenCode
 ```
 
 This:

@@ -28,6 +28,11 @@ set -euo pipefail
 # Inputs. CLONE_DIR is the parent of both checkouts: MOCA at $CLONE_DIR/moca,
 # Context Service at $CLONE_DIR/context-service. Required, no default — point
 # it at wherever you cloned the two repos (see README > Checkouts).
+# SH_TEST_USERS / SH_TEST_USER_SECRET configure the control plane's
+# test-user logins — the demo's login method (shared-secret, no external
+# identity provider). This is just a demo, so the secret defaults to a
+# fixed constant; the README's login section uses the same value.
+SH_TEST_USER_SECRET_DEFAULT="state-lab-demo-secret"
 : "${CLONE_DIR:?CLONE_DIR is required: parent of the moca/ and context-service/ checkouts (see README > Checkouts)}"
 
 MOCA_DIR="${CLONE_DIR}/moca"
@@ -43,10 +48,20 @@ CP_PORT="${CP_PORT:-18090}"
 CS_PORT="${CS_PORT:-19090}"
 HARNESS_URL="http://127.0.0.1:${HARNESS_PORT}"
 
-if [[ -z "${SH_GITHUB_CLIENT_ID:-}" ]]; then
-  echo "SH_GITHUB_CLIENT_ID is required (GitHub OAuth app, device-flow enabled)." >&2
+TEST_USERS="${SH_TEST_USERS:-0}"
+TEST_USER_SECRET="${SH_TEST_USER_SECRET:-$SH_TEST_USER_SECRET_DEFAULT}"
+if (( TEST_USERS == 0 )); then
+  echo "Set SH_TEST_USERS=1 — it configures the demo's test-user login." >&2
   exit 1
 fi
+if [[ ${#TEST_USER_SECRET} -lt 16 ]]; then
+  echo "SH_TEST_USER_SECRET must be at least 16 characters" >&2
+  exit 1
+fi
+
+# Required by MOCA's deploy script; pinned to a fixed value this demo never
+# exercises.
+GITHUB_CLIENT_ID_PLACEHOLDER='demo-not-used'
 
 for d in "${MOCA_DIR}" "${CONTEXT_SERVICE_DIR}"; do
   if [[ ! -d "${d}" ]]; then
@@ -82,6 +97,8 @@ echo "==> 2/6 MOCA deploy/k8s/setup.sh"
 # writable) rely on this path.
 (cd "${MOCA_DIR}" && \
   SH_WORKLOAD_SANDBOXES=1 SH_PUBLIC_HARNESS_URL="${HARNESS_URL}" \
+  SH_GITHUB_CLIENT_ID="${GITHUB_CLIENT_ID_PLACEHOLDER}" \
+  SH_TEST_USERS="${TEST_USERS}" SH_TEST_USER_SECRET="${TEST_USER_SECRET}" \
   ./deploy/k8s/setup.sh --target kind --build)
 
 echo "==> 3/6 CoreDNS -> 1.1.1.1 / 8.8.8.8 (podman resolv.conf workaround)"
@@ -229,7 +246,8 @@ Prereqs installed. Port-forwards are running in the background; logs:
 Next, once per machine:
 
   export SH_CONTROL_PLANE_URL=http://127.0.0.1:${CP_PORT}
-  mocactl login
+  # Log in as test user 1 (shared secret).
+  MOCA_TEST_USER_SECRET="\$SH_TEST_USER_SECRET" mocactl login --test-user 1
   # ANTHROPIC_BASE_URL points at an Anthropic-compatible endpoint (e.g. a
   # LiteLLM gateway); ANTHROPIC_AUTH_TOKEN is the bearer token for it.
   printf %s "\$ANTHROPIC_AUTH_TOKEN" | mocactl credentials add anthropic \\
