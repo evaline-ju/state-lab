@@ -119,9 +119,23 @@ The MOCA checkout must be at or after
 [`dd918ac`](https://github.com/rossoctl/moca/commit/dd918ac9) (later
 than `v0.9.0`), which deploys Valkey 9 as the session store.
 
-### Install the cluster-side pieces
+Then clone this demo's repo alongside them and cd into the demo directory
+(all remaining instructions run from here):
 
 ```bash
+git clone https://github.com/rossoctl/state-lab "$CLONE_DIR/state-lab"
+cd "$CLONE_DIR/state-lab/docs/demos/subagents/moca-delegated"
+```
+
+### Install the cluster-side pieces
+
+> **Important:** The harness expects an Anthropic‑compatible endpoint and token. Make sure `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` are exported in your shell *before* you run `./prereqs-install.sh`. Otherwise the install script will error out silently.
+
+
+```bash
+export ANTHROPIC_BASE_URL=<your-anthropic-base-url>
+export ANTHROPIC_AUTH_TOKEN=<your-anthropic-auth-token>
+
 SH_GITHUB_CLIENT_ID=<your-oauth-client-id> \
 CLONE_DIR=<parent-of-both-checkouts> \
   ./prereqs-install.sh
@@ -175,12 +189,13 @@ along with the cluster, use `./prereqs-uninstall.sh`.
 
 ```bash
 export SH_CONTROL_PLANE_URL=http://127.0.0.1:18090
+# The demo uses a **fixed Anthropic model** – `claude-opus-4-8`.
+# This model cannot be overridden via any command‑line flag at the moment.
 mocactl login
-# ANTHROPIC_BASE_URL points at an Anthropic-compatible endpoint (e.g. a
-# LiteLLM gateway); ANTHROPIC_AUTH_TOKEN is the bearer token for it.
 printf %s "$ANTHROPIC_AUTH_TOKEN" | mocactl credentials add anthropic \
   --host "$(printf %s "$ANTHROPIC_BASE_URL" | awk -F/ '{print $3}')" --kind bearer \
   --endpoint "$ANTHROPIC_BASE_URL"
+
 mocactl doctor
 ```
 
