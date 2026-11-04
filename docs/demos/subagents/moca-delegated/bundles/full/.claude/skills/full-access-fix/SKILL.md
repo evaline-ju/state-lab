@@ -37,20 +37,25 @@ calling it done.
 1. **Read the diagnosis.** The prompt will include a prior agent's
    full report. Trust it as the specification of what needs to change
    — your job is to apply it, not re-diagnose.
-2. **Make the exact edit the diagnosis called for.** No extra cleanup,
+2. **Record a baseline before editing.** From your current directory:
+   `git init -q && git add -A && git commit -qm baseline`. This
+   exists only so step 6 can produce a diff.
+3. **Make the exact edit the diagnosis called for.** No extra cleanup,
    no drive-by refactors. One file, one line, as described.
-3. **Run the test suite.** `python3 -m unittest discover -s tests`,
+4. **Run the test suite.** `python3 -m unittest discover -s tests`,
    from your current directory.
-4. **Capture the full output verbatim.** Including the dot/E/F stream,
+5. **Capture the full output verbatim.** Including the dot/E/F stream,
    the `Ran N tests in …s` line, and the trailing `OK` or `FAILED`.
+6. **Capture the diff.** `git diff` — a unified diff with paths
+   relative to the project root.
 
 ## About your workspace
 
-Your working directory is **this run's own writable copy** of the
-project. Edits land in that copy; the copy is **discarded when the
-run ends**. There will be no other record of what you did — not a
-diff on disk, not a saved workspace, nothing. Your final message is
-the only record.
+Your working directory is this workload's own **writable** tree of
+the project, on its own volume. The tree is **deleted with the
+workload** once your result is collected; nothing exports it. Your
+final message is the only record, and the operator applies your diff
+from it.
 
 ## End-of-turn deliverable
 
@@ -59,7 +64,8 @@ End your turn with a report containing:
 1. The exact change made (file, line number, before → after).
 2. The full test output after your change (verbatim, from the first
    `.`/`E`/`F` character through the trailing `OK` / `FAILED` line).
+3. The `git diff` output, verbatim, in a fenced `diff` block.
 
-Both are required. A report without the verbatim test output is not
+All three are required. A report without the verbatim test output is not
 acceptable: it means the fix was never actually verified against the
 organization's testing convention.
