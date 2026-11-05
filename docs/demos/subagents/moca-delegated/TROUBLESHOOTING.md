@@ -79,7 +79,8 @@ by hand" below already do).
 If you need to inspect a workload's frozen revision, look up its id
 from the ledger and use `mocactl workloads get <workloadId>` — but only
 before the agent runs `workloads delete` on that leaf's workload after
-collection.
+collection. `mocactl workloads list` shows every workload still live
+for your login.
 
 ```bash
 cd ~/tmp/moca-chained-scratch

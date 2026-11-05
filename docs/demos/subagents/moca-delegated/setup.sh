@@ -88,7 +88,7 @@ if ! printf '%s' "${spawn_probe}" | grep -q 'spawn needs a prompt'; then
   exit 1
 fi
 workloads_probe="$(mocactl workloads 2>&1 || true)"
-if ! printf '%s' "${workloads_probe}" | grep -q 'workloads needs create, get or delete'; then
+if ! printf '%s' "${workloads_probe}" | grep -q 'workloads needs create'; then
   echo "    this mocactl has no 'workloads' subcommand — too old." >&2
   echo "    Reinstall with the install script above (MOCACTL_VERSION=edge)." >&2
   exit 1
