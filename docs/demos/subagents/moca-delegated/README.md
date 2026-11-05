@@ -115,6 +115,8 @@ cd "$CLONE_DIR/state-lab/docs/demos/subagents/moca-delegated"
 
 ### Install the cluster-side pieces
 
+> **Important:** The harness expects an Anthropic-compatible endpoint and token. Export `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` in your shell; the `mocactl credentials add` step under [Log in](#log-in-once-per-machine) reads both.
+
 ```bash
 SH_TEST_USERS=1 ./prereqs-install.sh
 ```
