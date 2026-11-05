@@ -246,6 +246,7 @@ Prereqs installed. Port-forwards are running in the background; logs:
 Next, once per machine:
 
   export SH_CONTROL_PLANE_URL=http://127.0.0.1:${CP_PORT}
+  export SH_TEST_USER_SECRET=${TEST_USER_SECRET}
   # Log in as test user 1 (shared secret).
   MOCA_TEST_USER_SECRET="\$SH_TEST_USER_SECRET" mocactl login --test-user 1
   # ANTHROPIC_BASE_URL points at an Anthropic-compatible endpoint (e.g. a

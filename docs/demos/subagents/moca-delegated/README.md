@@ -89,11 +89,11 @@ alone.
   (Node 22+), with the `workloads` subcommand and the flags `--label`,
   `--sandboxes`, `--prompt-file`:
   ```bash
-  curl -fsSL https://raw.githubusercontent.com/rossoctl/moca/main/scripts/install-mocactl.sh | MOCACTL_VERSION=v0.9.0 sh
+  curl -fsSL https://raw.githubusercontent.com/rossoctl/moca/main/scripts/install-mocactl.sh | MOCACTL_VERSION=v0.10.0 sh
   ```
   `./setup.sh` probes all four and refuses to run on an older build.
-  Tested against `v0.9.0` and `edge-dd918ac`; `MOCACTL_VERSION=edge`
-  picks up the latest main.
+  Tested against `v0.10.0`; `MOCACTL_VERSION=edge` picks up the latest
+  main.
 - [`contextctl`](https://github.com/rossoctl/context-service) v0.3.0+
   with the `ctx pack` subcommand (build from main — `make build` — until
   a release ships). The upstream `moca-delegate-task` skill assumes
@@ -120,8 +120,9 @@ export CLONE_DIR=<parent-of-both-checkouts>
 ```
 
 The MOCA checkout must be at or after
-[`dd918ac`](https://github.com/rossoctl/moca/commit/dd918ac9) (later
-than `v0.9.0`), which deploys Valkey 9 as the session store.
+[`v0.10.0`](https://github.com/rossoctl/moca/releases/tag/v0.10.0)
+(`git -C moca checkout v0.10.0 && git -C moca submodule update`), which
+deploys Valkey 9 as the session store.
 
 Then clone this demo's repo alongside them and cd into the demo directory
 (all remaining instructions run from here):
@@ -295,9 +296,11 @@ OpenCode — the wrapper exports `SH_CONTROL_PLANE_URL` /
 ~/tmp/moca-chained-scratch/run-opencode.sh
 ```
 
-In a side terminal, `./watch.sh` follows the run: one line per
-workload StatefulSet, pod and status change, and per leaf state
-change, for leaves submitted after it starts.
+In a side terminal, `./watch.sh` follows the run. Each line is tagged
+with the subagent's label (`[diagnose]`, `[fix]`) and reports a
+workload, sandbox or subagent state change, for subagents submitted
+after it starts. A workload shows `[awaiting spawn]` until
+`mocactl spawn` labels it.
 
 For the by-hand "Peek at state" commands below, export the
 port-forward URLs so `mocactl` can reach MOCA (also printed by

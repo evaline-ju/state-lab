@@ -82,12 +82,13 @@ if [[ -z "${WORKLOAD_IDS}" ]]; then
   echo "    (no workload ids on ledger rows for this tag; nothing to delete)"
 else
   for wid in ${WORKLOAD_IDS}; do
-    if mocactl workloads delete "${wid}" >/dev/null 2>&1; then
-      echo "    deleted workload ${wid}"
+    # mocactl reports a repeat delete as "was already deleted" (exit 0; expected
+    # when the agent reaped it after collection) and an unknown id as an error
+    # (exit 1; e.g. a ledger row from an earlier cluster).
+    if out="$(mocactl workloads delete "${wid}" 2>&1)"; then
+      echo "    ${out}"
     else
-      # Expected when the agent followed the moca-delegate-task skill and ran
-      # `mocactl workloads delete` after collecting each leaf's result.
-      echo "    workload ${wid} already deleted (reaped mid-demo)"
+      echo "    workload ${wid} not found on this control plane"
     fi
   done
 fi
