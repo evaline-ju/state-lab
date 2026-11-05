@@ -76,8 +76,7 @@ echo "==> Deleting leftover workloads..."
 # The agent is expected to delete each leaf's workload after collecting
 # its result, so this step is a no-op in the normal case. It catches
 # workloads from leaves the operator abandoned (dispatched but never
-# collected). Writable per-run copies are discarded when the run ends;
-# the shared read-only cache is released by DELETE /workloads/{id}.
+# collected). Deleting a workload removes its sandbox pod and PVC.
 if [[ -z "${WORKLOAD_IDS}" ]]; then
   echo "    (no workload ids on ledger rows for this tag; nothing to delete)"
 else

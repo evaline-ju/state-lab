@@ -187,8 +187,8 @@ fi
 echo "    ok: Context Service public URL reachable at ${CS_PUBLIC_URL}"
 
 echo "==> Staging scratch dir at ${SCRATCH_DIR} (parent: ${PARENT})..."
-# Fresh staging on every run: the demo tag is per-run, so notes and results
-# from an earlier run would be orphaned. Collect results before re-running.
+# Fresh staging on every run: MOCA.md and results/ from an earlier run are
+# wiped. Collect results before re-running.
 rm -rf "${SCRATCH_DIR}"
 mkdir -p "${SCRATCH_DIR}"
 
@@ -240,7 +240,7 @@ esac
 # Flatten the fixture into the scratch dir, so the parent's cwd IS the project.
 # This matches the upstream moca-delegate-task skill's "the project is in your
 # working directory" assumption; operator prompts can pack `.` instead of
-# `./example_repo`. Parent-side bookkeeping (`leaves/`, `MOCA.md`, `.envrc`)
+# `./example_repo`. Parent-side bookkeeping (`.moca-delegate/`, `results/`, `MOCA.md`, `.envrc`)
 # is kept out of each leaf's workload by `.gitignore` below -- contextctl ctx
 # pack honors it. `.claude/` is skipped by contextctl directly; `.opencode/`
 # is not, so it is listed in the gitignore below for the opencode parent.
@@ -275,7 +275,7 @@ EOF
 fi
 
 echo "==> Promoting the two config bundles..."
-# Config bundles carry each leaf's skills + commands (NOT CLAUDE.md). They
+# Config bundles carry each leaf's skills (NOT CLAUDE.md). They
 # travel server-held and content-addressed, picked up at dispatch time via
 # `mocactl spawn --config <digest>`. The diagnose leaf runs with the
 # public-only posture; the fix leaf runs with the full-access posture.
@@ -328,9 +328,9 @@ for a plain shell, export them by hand:
 
 Notes:
 - The diagnose leaf dispatches with '--config ${DIGEST_PUBLIC}' (public-
-  posture skill, read-only workload). The fix leaf dispatches with
-  '--config ${DIGEST_FULL} --writable' (full-access skill, per-run
-  writable copy of the workload).
+  posture skill, '--mount read-only' workload). The fix leaf dispatches
+  with '--config ${DIGEST_FULL}' (full-access skill, '--mount writable'
+  workload; edits stay on its PVC until 'workloads delete').
 - The agent packs its cwd (this scratch dir) and creates one workload
   per leaf at dispatch time; those workloads are released after collection.
 - Each child's identity is (config digest, workload revision, sessionId) —

@@ -61,33 +61,30 @@ gets stuck.
   `export` the two URLs by hand first (recorded in `MOCA.md`).
 - **A compound shell command is auto-rejected under `opencode run`**
   with `permission requested: external_directory (/var/folders/...)`.
-  The upstream `moca-delegate-task` skill tells the agent to use
-  `mktemp -d`, and OpenCode gates any shell operation on paths outside
-  the project root. Workaround: tell the agent to use `leaves/` for
-  packs and results (e.g. "write to `leaves/<name>.result` — not
-  `/tmp` or `/var/folders`").
+  OpenCode gates any shell operation on paths outside the project
+  root. The upstream skill packs into `.moca-delegate/` and collects
+  into `results/`; if the agent strays to `/tmp`, tell it to use those.
 
 ## Inspecting state in the sandbox
 
-Writable runs discard their copies when the run ends, and read-only
-runs do not write to the mount at all, so there is nothing in the
-sandbox to inspect after a leaf finishes. The leaf's final message is
-the only record of what it did — if you want a diff or test output,
-the prompt must ask for it as text (the templates in "Running the flow
-by hand" below already do).
+A read-only workload never changes. A `--mount writable` workload
+keeps the fix leaf's edits on its own PVC until `workloads delete`,
+but they never reach your working tree. The leaf's final message is
+the record of what it did — if you want a diff or test output, the
+prompt must ask for it as text (the `full-access-fix` skill and the
+templates in "Running the flow by hand" below already do).
 
-If you need to inspect a workload's frozen revision, look up its id
-from the ledger and use `mocactl workloads get <workloadId>` — but only
-before the agent runs `workloads delete` on that leaf's workload after
-collection. `mocactl workloads list` shows every workload still live
-for your login.
+To inspect a workload, look up its id from the ledger and use
+`mocactl workloads get <workloadId>` — only before the agent deletes
+it after collection. `mocactl workloads list` shows every workload
+still live for your login.
 
 ```bash
 cd ~/tmp/moca-chained-scratch
 mocactl subagents --tag moca-chained-subagents-demo
 mocactl subagents --tag moca-chained-subagents-demo --json \
-  | jq -r '.subagents[] | select(.label=="diagnose") | .workload'
-cat leaves/<sessionId>.text       # the collected result
+  | jq -r '[.subagents[] | select(.label=="diagnose")] | sort_by(.submittedAt) | last | .workload'
+cat results/<sessionId>.text      # the collected result
 ```
 
 ## Running the flow by hand
@@ -114,10 +111,23 @@ DIGEST_PUBLIC="$(grep -E '^Config digest public:' MOCA.md | awk '{print $NF}')"
 DIGEST_FULL="$(grep -E '^Config digest full:'   MOCA.md | awk '{print $NF}')"
 ```
 
+Packs, prompt files and collected results go where the
+`moca-delegate-task` skill puts them: `.moca-delegate/` and `results/`,
+both in the scratch dir's `.gitignore`, so `contextctl ctx pack .`
+never ships them. The `latest` helper picks the newest ledger row for
+a label (the tag is constant, so older runs share it):
+
+```bash
+mkdir -p .moca-delegate results
+latest() { mocactl subagents --tag "$TAG" --json \
+  | jq -r --arg l "$1" --arg f "$2" \
+    '[.subagents[] | select(.label==$l)] | sort_by(.submittedAt) | last | .[$f]'; }
+```
+
 **1 — author the diagnose leaf's prompt:**
 
 ```bash
-cat > leaves/diagnose.prompt.txt <<'EOF'
+cat > .moca-delegate/diagnose.prompt.txt <<'EOF'
 Use the public-research skill. The project's tests currently fail —
 diagnose why. The relevant docs are under docs/upstream-refs/.
 EOF
@@ -128,25 +138,26 @@ the posture, the test command, the "no edits / stdlib-only / end with
 the full report" rules, and the deliverable shape. The prompt only has
 to name the task.
 
-**2 — pack the project subdir and create this leaf's workload:**
+**2 — pack the project and create this leaf's workload** on its own
+read-only sandbox:
 
 ```bash
-contextctl ctx pack . --type workspace \
-  -o leaves/diagnose.context
+contextctl ctx pack . -o .moca-delegate/diagnose.context
 DIAG_WORKLOAD_ID="$(mocactl workloads create \
-  --context leaves/diagnose.context --json | jq -r '.workloadId')"
+  --context .moca-delegate/diagnose.context \
+  --sandboxes 1 --mount read-only --json | jq -r '.workloadId')"
 ```
 
-**3 — dispatch it.** Read-only, so just `--workload` (no `--writable`),
-the public-posture config bundle via `--config`, and `--label diagnose`
-so a resumed session can find it by name. `--json` prints one line on
-stdout (`{"type":"session","sessionId":"…","pid":…}`); diagnostics go
-to stderr:
+**3 — dispatch it** with the public-posture config bundle via
+`--config`, and `--label diagnose` so a resumed session can find it by
+name. `--json` prints one line on stdout
+(`{"type":"session","sessionId":"…","pid":…}`); diagnostics go to
+stderr:
 
 ```bash
-mocactl spawn "$(cat leaves/diagnose.prompt.txt)" --kind prompt \
-  --config "$DIGEST_PUBLIC" \
-  --workload "$DIAG_WORKLOAD_ID" --tag "$TAG" --label diagnose --json
+mocactl spawn --kind prompt --config "$DIGEST_PUBLIC" \
+  --workload "$DIAG_WORKLOAD_ID" --tag "$TAG" --label diagnose \
+  --prompt-file .moca-delegate/diagnose.prompt.txt --json
 ```
 
 Then **stop**. The leaf is durable server-side; no sidecar note needed
@@ -157,15 +168,12 @@ leaf runs, restore it, and collect anyway — step 4 still works, because
 the server finishes the run no matter what your laptop did.
 
 **4 — collect** (later; re-run every minute or so until done — each
-check is free and does not disturb the leaf). Look up the sessionId
-and workloadId from the ledger by label:
+check is free and does not disturb the leaf):
 
 ```bash
-SID=$(mocactl subagents --tag "$TAG" --json \
-  | jq -r '.subagents[] | select(.label=="diagnose") | .sessionId')
-WLID=$(mocactl subagents --tag "$TAG" --json \
-  | jq -r '.subagents[] | select(.label=="diagnose") | .workload')
-mocactl get "$SID" --out leaves --json
+SID="$(latest diagnose sessionId)"
+WLID="$(latest diagnose workload)"
+mocactl get "$SID" --out results --json
 ```
 
 Branch on the printed `status`, not the exit code: `queued` (exit 1)
@@ -175,7 +183,7 @@ Branch on the printed `status`, not the exit code: `queued` (exit 1)
 twin, and `mocactl subagents` calls both of them `done`:
 
 ```bash
-cat leaves/"$SID".text
+cat results/"$SID".text
 mocactl workloads delete "$WLID"
 ```
 
@@ -187,11 +195,11 @@ directly.
 
 **5 — chain the fix leaf.** Author its prompt with the diagnosis
 inlined **verbatim** (never point one leaf at another leaf's files —
-each leaf has its own view / writable copy):
+each leaf has its own sandbox and disk):
 
 ```bash
-DIAG="$(cat leaves/"$SID".text)"
-cat > leaves/fix.prompt.txt <<EOF
+DIAG="$(cat results/"$SID".text)"
+cat > .moca-delegate/fix.prompt.txt <<EOF
 Use the full-access-fix skill. A prior agent produced this diagnosis
 of the failing tests:
 
@@ -208,29 +216,32 @@ testing convention, the src/-not-vendor/ rule, the "no pip" rule, and
 the verbatim-test-output deliverable. The prompt only has to pass
 through the prior leaf's diagnosis.
 
-Pack a fresh workload for the fix leaf, dispatch it with `--writable`
-and `--label fix`, then collect and release. `get` exit 1 with "has
-not finished yet" just means still running:
+Pack a fresh workload for the fix leaf on its own writable sandbox
+(`--mount writable`, so no `spawn --writable`), dispatch it with
+`--label fix`, then collect and release. `get` exit 1 with "has not
+finished yet" just means still running:
 
 ```bash
-contextctl ctx pack . --type workspace -o leaves/fix.context
+contextctl ctx pack . -o .moca-delegate/fix.context
 FIX_WORKLOAD_ID="$(mocactl workloads create \
-  --context leaves/fix.context --json | jq -r '.workloadId')"
+  --context .moca-delegate/fix.context \
+  --sandboxes 1 --mount writable --json | jq -r '.workloadId')"
 
-mocactl spawn "$(cat leaves/fix.prompt.txt)" --kind prompt \
-  --config "$DIGEST_FULL" \
-  --workload "$FIX_WORKLOAD_ID" --writable --tag "$TAG" --label fix --json
+mocactl spawn --kind prompt --config "$DIGEST_FULL" \
+  --workload "$FIX_WORKLOAD_ID" --tag "$TAG" --label fix \
+  --prompt-file .moca-delegate/fix.prompt.txt --json
 
-FIX_SID=$(mocactl subagents --tag "$TAG" --json \
-  | jq -r '.subagents[] | select(.label=="fix") | .sessionId')
-mocactl get "$FIX_SID" --out leaves --json
-cat leaves/"$FIX_SID".text
+FIX_SID="$(latest fix sessionId)"
+mocactl get "$FIX_SID" --out results --json
+cat results/"$FIX_SID".text
 mocactl workloads delete "$FIX_WORKLOAD_ID"
+rm -r .moca-delegate
 ```
 
-The report should say `src/greet.py` changed (`old_name` → `new_name`) and
-that the tests pass. There is no "inspect the sandbox" fallback: the
-writable copy is gone when the run ends.
+The report should say `src/greet.py` changed (`old_name` → `new_name`)
+and that the tests pass. The edits stay on the fix workload's PVC until
+`workloads delete` and never reach your working tree; the report's diff
+is what you apply locally.
 
 **6 — see the whole chain:**
 
@@ -238,8 +249,9 @@ writable copy is gone when the run ends.
 mocactl subagents --tag "$TAG"
 ```
 
-Both leaves should show `done`; one that ran over five minutes may show
-`running` until reconciled. `mocactl get` is the source of truth: `responded` means it finished.
+The newest `diagnose` and `fix` rows should show `done`; one that ran
+over five minutes may show `running` until reconciled. `mocactl get` is
+the source of truth: `responded` means it finished.
 
 **7 — tear down:**
 
@@ -249,20 +261,22 @@ cd -   # back to the demo dir
 mocactl sessions   # the demo's leaf sessions are gone
 ```
 
-Re-dispatch after a failure (fresh label, fresh workload — copy the
-prompt file and edit as needed):
+Re-dispatch after a failure (fresh label, fresh workload). The
+diagnosis is still in `results/`, so re-author the prompt as in step 5:
 
 ```bash
-cp leaves/fix.prompt.txt leaves/fix2.prompt.txt
-contextctl ctx pack . --type workspace -o leaves/fix2.context
+mkdir -p .moca-delegate
+# write .moca-delegate/fix2.prompt.txt as in step 5, then:
+contextctl ctx pack . -o .moca-delegate/fix2.context
 FIX2_WORKLOAD_ID="$(mocactl workloads create \
-  --context leaves/fix2.context --json | jq -r '.workloadId')"
-mocactl spawn "$(cat leaves/fix2.prompt.txt)" --kind prompt \
-  --config "$DIGEST_FULL" \
-  --workload "$FIX2_WORKLOAD_ID" --writable --tag "$TAG" --label fix2 --json
+  --context .moca-delegate/fix2.context \
+  --sandboxes 1 --mount writable --json | jq -r '.workloadId')"
+mocactl spawn --kind prompt --config "$DIGEST_FULL" \
+  --workload "$FIX2_WORKLOAD_ID" --tag "$TAG" --label fix2 \
+  --prompt-file .moca-delegate/fix2.prompt.txt --json
 ```
 
-Start a completely fresh chain (new tag, fresh scratch):
+Start a completely fresh chain (fresh scratch dir and config bundles; the tag stays the same):
 
 ```bash
 ./teardown.sh && ./setup.sh

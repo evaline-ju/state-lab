@@ -46,7 +46,7 @@ Four pieces cooperate:
    come from the operator's prompts, not the skill.
 2. **`mocactl`** — the official MOCA client on your `PATH`. Owns all
    auth in `~/.config/mocactl`. Provides `spawn` / `get` / `subagents`
-   for sessions, `workloads create / get / delete` for the per-leaf
+   for sessions, `workloads create / list / get / delete` for the per-leaf
    context-service bundle, and `promote` / `bundles delete` for config
    bundles.
 3. **Two promoted config bundles** — `bundles/public-only/` and
@@ -61,7 +61,8 @@ Four pieces cooperate:
    is the operator's visual confirmation that work is going to MOCA,
    not running locally.
 
-Per-leaf lifecycle: pack cwd → `workloads create` →
+Per-leaf lifecycle: pack cwd → `workloads create --sandboxes 1
+--mount read-only|writable` →
 `mocactl spawn … --config $DIGEST --workload $WID --tag
 moca-chained-subagents-demo --label <label>` → **stop**. The server
 runs the leaf to completion and stores the result before responding,
@@ -134,8 +135,7 @@ cd "$CLONE_DIR/state-lab/docs/demos/subagents/moca-delegated"
 
 ### Install the cluster-side pieces
 
-> **Important:** The harness expects an Anthropic‑compatible endpoint and token. Make sure `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` are exported in your shell *before* you run `./prereqs-install.sh`. Otherwise the install script will error out silently.
-
+> **Important:** The harness expects an Anthropic‑compatible endpoint and token. Export `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` in your shell; the `mocactl credentials add` step under [Log in](#log-in-once-per-machine) reads both.
 
 ```bash
 export ANTHROPIC_BASE_URL=<your-anthropic-base-url>
@@ -201,8 +201,8 @@ Log in as the test user the install step configured (the same fixed
 ```bash
 export SH_CONTROL_PLANE_URL=http://127.0.0.1:18090
 export SH_TEST_USER_SECRET=state-lab-demo-secret
-# The demo uses a **fixed Anthropic model** – `claude-opus-4-8`.
-# This model cannot be overridden via any command‑line flag at the moment.
+# Leaves run on the harness default model, claude-opus-4-8. mocactl has no
+# per-spawn model flag; SH_MODEL on the supervisor overrides the default.
 MOCA_TEST_USER_SECRET="$SH_TEST_USER_SECRET" mocactl login --test-user 1
 printf %s "$ANTHROPIC_AUTH_TOKEN" | mocactl credentials add anthropic \
   --host "$(printf %s "$ANTHROPIC_BASE_URL" | awk -F/ '{print $3}')" --kind bearer \
@@ -258,7 +258,8 @@ packs the scratch dir and runs `mocactl workloads create --sandboxes 1
 --mount read-only|writable`. Each
 workload gets its own sandbox pod and PVC under `moca-sandbox`, seeded
 from the frozen revision; `mocactl spawn --workload <id>` creates the
-session. The agent deletes the workload after collecting the result.
+session. The skill tells the agent to delete the workload after
+collecting the result.
 
 Environment overrides (set before running):
 
@@ -366,7 +367,7 @@ subagents --tag moca-chained-subagents-demo --json` (filtering by
 `.label=="diagnose"`), runs `mocactl get <sessionId> --out results
 --json`, and branches on `status`: `queued` → "still running", stop;
 `responded` → read `results/<sessionId>.text`, surface the diagnosis,
-and delete the workload (`./teardown.sh` deletes any left over).
+and should delete the workload (`./teardown.sh` deletes any left over).
 
 *Peek at state:* same handles, from the operator's shell:
 
@@ -616,7 +617,7 @@ In the scratch dir after `setup.sh` (Claude Code):
 ├── .gitignore             Keeps MOCA.md, .moca-delegate/, results/ out of each leaf's workload
 ├── MOCA.md                Written by setup.sh — the two promoted config digests + run facts
 ├── README.md src/ tests/ vendor/ docs/   The fixture, at the scratch root
-├── .moca-delegate/        Created per leaf by the agent — holds the packed .context (and prompt file for --prompt-file); removed after dispatch
+├── .moca-delegate/        Created per leaf by the agent — holds the packed .context (and prompt file for --prompt-file); removed after collection
 └── results/               Created by the agent on `mocactl get --out results` — holds <sid>.text per collected leaf
 ```
 

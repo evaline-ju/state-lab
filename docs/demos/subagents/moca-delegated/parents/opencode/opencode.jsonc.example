@@ -5,9 +5,9 @@
 //
 // `shell` is per-command: wildcards allow the mocactl + contextctl calls the skill issues, and
 // nothing else runs without asking. Edits and file writes are denied — the parent only orchestrates,
-// never touches the scratch dir beyond leaves/ bookkeeping.
+// never touches the scratch dir beyond .moca-delegate/ bookkeeping.
 //
-// Setup injects the port-forward URLs below via `.env` (opencode reads it from the project root).
+// The port-forward URLs come from the run-opencode.sh wrapper setup.sh stages next to this config.
 {
   "$schema": "https://opencode.ai/config.json",
   "permission": {
@@ -16,7 +16,6 @@
     "patch": "deny",
     "write": {
       "*": "deny",
-      "leaves/*.prompt.txt": "allow",
       ".moca-delegate/**": "allow"
     },
     "shell": {
@@ -33,7 +32,7 @@
       "mocactl sessions *": "allow",
       "mocactl bundles delete *": "allow",
       "contextctl ctx pack *": "allow",
-      "cat leaves/*": "allow",
+      "cat results/*": "allow",
       "jq *": "allow"
     }
   }
