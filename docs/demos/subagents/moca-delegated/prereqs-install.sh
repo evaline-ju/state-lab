@@ -7,10 +7,9 @@
 #   2. Run MOCA's deploy/k8s/setup.sh --target kind --build.
 #   3. Point CoreDNS at public resolvers (podman's resolv.conf is flaky).
 #   4. Build the context-service image, load it into kind, and apply its
-#      manifest patched to live in the `context-service` namespace. The
-#      upstream manifest ships `serverless-harness`, but MOCA's supervisor
-#      egress NetworkPolicy only allows the namespace literally named
-#      `context-service` with pods labelled app.kubernetes.io/name=context-service.
+#      manifest in the `context-service` namespace (MOCA's supervisor egress
+#      NetworkPolicy only allows that namespace, pods labelled
+#      app.kubernetes.io/name=context-service).
 #   5. Create the moca-context-service ConfigMap + Secret, restart the
 #      supervisor.
 #   6. Background the three port-forwards (supervisor, control plane,
@@ -116,9 +115,9 @@ echo "==> 4/6 Context Service image + manifest"
   docker build --load -t dev.local/context-service:local .)
 kind load docker-image dev.local/context-service:local --name "${KIND_CLUSTER}"
 
-# Rewrite the namespace: the manifest ships `serverless-harness`, MOCA
-# requires `context-service`. The upstream manifest has no Namespace
-# resource of its own, so create it before applying.
+# The manifest targets `context-service` (older ones shipped
+# `serverless-harness`; the sed keeps those working) but has no Namespace
+# resource, so create it first.
 kubectl --context "${KUBE_CONTEXT}" create namespace context-service \
   --dry-run=client -o yaml |
   kubectl --context "${KUBE_CONTEXT}" apply -f - >/dev/null

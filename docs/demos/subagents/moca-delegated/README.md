@@ -8,29 +8,23 @@ Claude, `task` for OpenCode) runs in the same session. This demo
 dispatches an isolated leaf to [MOCA](https://github.com/rossoctl/moca)
 via the official client **`mocactl`**.
 
-The pedagogical point is that the choice of parent agent is the
-**operator's**, and the delegation seam is the same regardless. The
-same `moca-delegate-task` skill, the same `mocactl` commands, the same
-four operator prompts work for both. What differs is only the parent
-agent's config dir name and format — see the
-[parent-agent differences](#parent-agent-differences) table.
-
-The orchestration shape is the **operator's**, not the skill's. For
-this demo the operator issues prompts in sequence:
+Both parent agents use the same skill, `mocactl` commands and operator
+prompts; only the config format differs (see
+[parent-agent differences](#parent-agent-differences)). The operator,
+not the skill, decides the orchestration. Here, prompts in sequence:
 
 1. *"Dispatch a subagent to diagnose the failing test."* The parent
    packs the scratch dir, creates a workload, spawns a leaf against
-   it, and returns. Operator can walk away.
+   it, and returns.
 2. Later: *"Check on that subagent and report the diagnosis."* The
    parent collects the result and surfaces the diagnosis.
 3. *"Dispatch a fixer with that diagnosis."* Repeat the pattern, this
    time with a `--mount writable` workload so the fix leaf can edit
    and test.
 
-MOCA does not know about the chain; from its perspective each leaf is
-an independent, self-contained session. The skill does not know about
-the chain either — it describes how to dispatch and collect one leaf,
-and the model composes multi-leaf flows from the operator's requests.
+Neither MOCA nor the skill knows about the chain: each leaf is an
+independent session, and the parent agent composes the flow from the
+operator's prompts.
 
 ## How state flows
 
@@ -38,69 +32,56 @@ Four pieces cooperate:
 
 1. **The `moca-delegate-task` skill** — upstream MOCA's delegation
    skill, staged verbatim from `<moca>/skills/moca-delegate-task/`.
-   Tells the parent agent how to pack, dispatch, and collect one
-   leaf: pack to `.moca-delegate/repo.context`, dispatch with
-   `mocactl spawn`, collect with `mocactl get --out results/`, delete
-   the workload, remove `.moca-delegate/`. Chaining and demo-specific
-   details (pack `.`, tag every spawn `moca-chained-subagents-demo`)
-   come from the operator's prompts, not the skill.
-2. **`mocactl`** — the official MOCA client on your `PATH`. Owns all
-   auth in `~/.config/mocactl`. Provides `spawn` / `get` / `subagents`
-   for sessions, `workloads create / list / get / delete` for the per-leaf
-   context-service bundle, and `promote` / `bundles delete` for config
-   bundles.
+   Pack to `.moca-delegate/repo.context`, `workloads create`,
+   `spawn`, poll `subagents`, `get --out results/`, then delete the
+   workload and `.moca-delegate/`. Demo specifics (pack `.`, the tag,
+   chaining) come from the operator's prompts.
+2. **`mocactl`** — the official MOCA client. Owns all auth in
+   `~/.config/mocactl`.
 3. **Two promoted config bundles** — `bundles/public-only/` and
    `bundles/full/`, each a `.claude/skills/` tree uploaded by `mocactl
    promote` as a sha256-pinned bundle. Diagnose dispatches with
    public-only; fix with full. Setup writes both digests to `MOCA.md`;
    teardown deletes them.
 4. **A denied in-process subagent tool** — the parent agent's config
-   (`.claude/settings.json` for Claude, `.opencode/opencode.jsonc` for
-   OpenCode) denies the built-in subagent (`Task` / `task`), forcing
-   the model through the skill. Each `mocactl spawn` permission prompt
-   is the operator's visual confirmation that work is going to MOCA,
-   not running locally.
+   denies the built-in subagent (`Task` / `task`), forcing the model
+   through the skill. Each `mocactl spawn` permission prompt confirms
+   the work is going to MOCA.
 
 Per-leaf lifecycle: pack cwd → `workloads create --sandboxes 1
 --mount read-only|writable` →
 `mocactl spawn … --config $DIGEST --workload $WID --tag
 moca-chained-subagents-demo --label <label>` → **stop**. The server
-runs the leaf to completion and stores the result before responding,
-so there is no client-disconnect abort; results live server-side for
-24h. The parent collects with `mocactl get <sid> --out results` and
-then deletes the workload, which reaps its StatefulSet and PVC.
+runs the leaf to completion and stores the result for 24h, whether or
+not the client is still connected. The parent collects with `mocactl
+get <sid> --out results`, then deletes the workload (its StatefulSet
+and PVC go with it).
 
 Tracking state lives on the mocactl ledger (`mocactl subagents --tag
-moca-chained-subagents-demo --json` reads back label, sessionId,
-workloadId, bundle digest, state), not in the scratch dir — a
-resumed parent-agent session reconstructs the chain from the ledger
-alone.
+moca-chained-subagents-demo --json`: label, sessionId, workloadId,
+bundle digest, state), so a resumed parent session rebuilds the chain
+from it alone.
 
 ## Prerequisites
 
 ### Tools on your PATH
 
-- `kind` ≥ 0.24.0 serving Kubernetes 1.30+ (ValidatingAdmissionPolicy
-  is required by the workload provisioner, and NetworkPolicy-enforcing
-  CNI is a hard requirement: sandbox isolation **is** NetworkPolicy).
-  `kubectl`, `docker` (or podman's `docker` CLI), `jq`, and your choice
-  of parent coding agent CLI on PATH: `claude` (Claude Code) or
-  `opencode` (OpenCode 1.19.x+ — tested on 1.19.4).
+- `kind` ≥ 0.24.0 (its default CNI enforces NetworkPolicy, which is
+  MOCA's sandbox isolation) with Kubernetes 1.30+ (the workload
+  provisioner needs ValidatingAdmissionPolicy).
+- `kubectl`, `docker` (or podman's `docker` CLI), `jq`, and `claude`
+  (Claude Code) or `opencode` (OpenCode 1.19.x+, tested on 1.19.4).
 - [`mocactl`](https://github.com/rossoctl/moca/tree/main/packages/mocactl)
-  (Node 22+), with the `workloads` subcommand and the flags `--label`,
-  `--sandboxes`, `--prompt-file`:
+  (Node 22+), tested on v0.10.0:
   ```bash
   curl -fsSL https://raw.githubusercontent.com/rossoctl/moca/main/scripts/install-mocactl.sh | MOCACTL_VERSION=v0.10.0 sh
   ```
-  `./setup.sh` probes all four and refuses to run on an older build.
-  Tested against `v0.10.0`; `MOCACTL_VERSION=edge` picks up the latest
-  main.
-- [`contextctl`](https://github.com/rossoctl/context-service) v0.3.0+
-  with the `ctx pack` subcommand (build from main — `make build` — until
-  a release ships). The upstream `moca-delegate-task` skill assumes
-  v0.3.0+ auto-skips `.claude/` and `.gitignore`'d files; verify with
-  `contextctl ctx pack --help | grep -q no-ignore`. `make build` writes
-  to `<context-service>/bin/contextctl`; put that on `PATH`.
+  `./setup.sh` refuses an older build (it probes for `workloads`,
+  `--label`, `--sandboxes` and `--prompt-file`).
+- [`contextctl`](https://github.com/rossoctl/context-service/releases/tag/v0.3.0)
+  v0.3.0+, from the release tarballs or `make build` (writes
+  `bin/contextctl`). v0.3.0 is the first `ctx pack` that skips
+  `.claude/` and `.gitignore`'d files, which the skill relies on.
 
 ### Checkouts
 
@@ -111,10 +92,9 @@ git clone --recurse-submodules https://github.com/rossoctl/moca
 git clone https://github.com/rossoctl/context-service
 ```
 
-`CLONE_DIR` must point at the parent of both checkouts and be exported in
-your shell — the install script and `./setup.sh` both read it; MOCA is
-expected at `$CLONE_DIR/moca` and Context Service at
-`$CLONE_DIR/context-service`. Required — there is no default.
+Export `CLONE_DIR` as the parent of both checkouts (required, no
+default); the scripts expect `$CLONE_DIR/moca` and
+`$CLONE_DIR/context-service`.
 
 ```bash
 export CLONE_DIR=<parent-of-both-checkouts>
@@ -125,8 +105,8 @@ The MOCA checkout must be at or after
 (`git -C moca checkout v0.10.0 && git -C moca submodule update`), which
 deploys Valkey 9 as the session store.
 
-Then clone this demo's repo alongside them and cd into the demo directory
-(all remaining instructions run from here):
+Clone this repo alongside them; all remaining commands run from the
+demo directory:
 
 ```bash
 git clone https://github.com/rossoctl/state-lab "$CLONE_DIR/state-lab"
@@ -135,70 +115,40 @@ cd "$CLONE_DIR/state-lab/docs/demos/subagents/moca-delegated"
 
 ### Install the cluster-side pieces
 
-> **Important:** The harness expects an Anthropic‑compatible endpoint and token. Export `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` in your shell; the `mocactl credentials add` step under [Log in](#log-in-once-per-machine) reads both.
+```bash
+SH_TEST_USERS=1 ./prereqs-install.sh
+```
+
+Safe to re-run. It:
+
+- creates the kind cluster `moca` and runs MOCA's `deploy/k8s/setup.sh`
+  with `SH_WORKLOAD_SANDBOXES=1` (the `moca-provisioner` behind
+  `--sandboxes`) and a test-user login gated by `SH_TEST_USER_SECRET`
+  (demo constant `state-lab-demo-secret`; no identity provider);
+- points CoreDNS at `1.1.1.1` / `8.8.8.8` (podman's resolv.conf often
+  lists an unreachable IPv6 nameserver first);
+- builds the Context Service image and `kind load`s it
+  (`ghcr.io/rossoctl/context-service` denies anonymous pulls);
+- writes one placeholder token to both MOCA's `moca-context-service`
+  Secret and Context Service's `context-service-control-plane` Secret,
+  which it checks on every `/internal/v1` call;
+- backgrounds three port-forwards, logging to
+  `~/.local/state/moca-chained-demo/`: supervisor on
+  `${HARNESS_PORT:-18080}`, control plane on `${CP_PORT:-18090}`,
+  Context Service on `${CS_PORT:-19090}`. Re-run the script to restart
+  them.
+
+To change a port, export the variable before both `./prereqs-install.sh`
+and `./setup.sh`.
+
+### Log in (once per machine)
+
+Log in as the test user the install step configured, and store an
+Anthropic-compatible endpoint and token as your inference credential:
 
 ```bash
 export ANTHROPIC_BASE_URL=<your-anthropic-base-url>
 export ANTHROPIC_AUTH_TOKEN=<your-anthropic-auth-token>
-
-SH_TEST_USERS=1 ./prereqs-install.sh
-```
-
-The demo logs in with a synthetic test user (`test:1`) gated by
-`SH_TEST_USER_SECRET` (a fixed demo constant — `state-lab-demo-secret` —
-used by both the install script and `mocactl login`) — no external
-identity provider needed.
-
-The script creates a kind cluster `moca`, runs MOCA's `deploy/k8s/setup.sh`
-with `SH_WORKLOAD_SANDBOXES=1` (installs `moca-provisioner` and the
-`moca-sandbox` namespace it manages) and
-`SH_PUBLIC_HARNESS_URL=http://127.0.0.1:${HARNESS_PORT}` (so the control
-plane advertises the demo's port-forward), builds and loads the
-context-service image, wires the two together, and backgrounds the three
-port-forwards the demo needs (logs under
-`~/.local/state/moca-chained-demo/`). Re-runnable on a *clean* cluster:
-a partially-completed prior run leaves namespaces behind, and
-`kubectl apply` on the manifest then fails with
-`namespaces "moca-credentials" already exists`. If that happens, run
-`./prereqs-uninstall.sh` (or `kind delete cluster --name moca`) before
-re-running. Three things it fixes along the way worth knowing about:
-
-- **Flaky pod DNS on podman.** The Podman-network resolv.conf often
-  points at an unreachable IPv6 nameserver first; the script points
-  CoreDNS at `1.1.1.1` / `8.8.8.8` to work around it.
-- **Context Service image is private.** `ghcr.io/rossoctl/context-service:latest`
-  returns 403 anonymously; the script builds locally and loads with
-  `kind load docker-image`.
-- **Namespace mismatch.** Context Service's upstream manifest ships
-  `namespace: serverless-harness`, but MOCA's supervisor egress NetworkPolicy
-  only allows the namespace literally named `context-service`. The script
-  rewrites the namespace before `kubectl apply`.
-
-The `moca-context-service` Secret's `token` key is required by MOCA but
-not currently enforced by Context Service — the script uses a placeholder.
-Rotate it once trusted-route auth lands upstream.
-
-### Port-forwards
-
-`prereqs-install.sh` backgrounds the three port-forwards itself —
-`moca-supervisor` on `127.0.0.1:${HARNESS_PORT:-18080}`,
-`moca-control-plane` on `${CP_PORT:-18090}`, `context-service` on
-`${CS_PORT:-19090}`. Logs live at `~/.local/state/moca-chained-demo/`.
-Override by exporting those env vars before running
-`./prereqs-install.sh` and `./setup.sh`; the control plane is told the
-chosen harness port via `SH_PUBLIC_HARNESS_URL`, and the
-`moca-context-service` ConfigMap's `public-url` matches `CS_PORT`.
-
-To restart them, re-run `./prereqs-install.sh` (it kills stale
-port-forwards against `kind-moca` before relaunching). To kill them
-along with the cluster, use `./prereqs-uninstall.sh`.
-
-### Log in (once per machine)
-
-Log in as the test user the install step configured (the same fixed
-`SH_TEST_USER_SECRET` the demo uses).
-
-```bash
 export SH_CONTROL_PLANE_URL=http://127.0.0.1:18090
 export SH_TEST_USER_SECRET=state-lab-demo-secret
 # Leaves run on the harness default model, claude-opus-4-8. mocactl has no
@@ -211,17 +161,12 @@ printf %s "$ANTHROPIC_AUTH_TOKEN" | mocactl credentials add anthropic \
 mocactl doctor
 ```
 
-`mocactl login --test-user 1` writes the standard `~/.config/mocactl/auth.json`,
-so token refresh, `doctor`, `credentials`, `spawn`, and `workloads` all
-behave exactly as with any other login.
+`--kind bearer` sends `Authorization: Bearer`, which gateways such as
+LiteLLM expect. For `api.anthropic.com` with an `sk-ant-api…` key, use
+`--host api.anthropic.com --kind api-key --endpoint
+https://api.anthropic.com` (MOCA rejects Bearer for API keys there).
 
-`--kind bearer` is required for Anthropic-compatible proxies that expect
-`Authorization: Bearer` (`--kind api-key` is only validated against
-`api.anthropic.com`). To talk directly to `api.anthropic.com` with an
-`ANTHROPIC_API_KEY`, swap in `--host api.anthropic.com --kind api-key
---endpoint https://api.anthropic.com` and pipe `$ANTHROPIC_API_KEY`.
-
-`mocactl doctor` must go all-green before `./setup.sh`.
+`mocactl doctor` must pass before `./setup.sh`.
 
 ## Setup
 
@@ -234,52 +179,29 @@ PARENT=opencode ./setup.sh                                  # OpenCode
 
 This:
 
-1. Verifies the tooling (`kubectl`, `jq`, `contextctl`, `mocactl` —
-   including probes that `mocactl` has the `workloads` subcommand and
-   the flags the demo uses: `--label`, `--sandboxes`, `--prompt-file`)
-   and that the `moca` namespace exists.
-2. Runs `mocactl doctor` against the port-forwards, then probes
-   Context Service's public URL.
-3. Stages the scratch dir at `~/tmp/moca-chained-scratch/` **as the
-   project**: the fixture flattens into the scratch root alongside the
-   parent agent's config (`.claude/settings.json` for Claude Code —
-   port-forward URLs injected natively via `env`; `.opencode/opencode.jsonc`
-   plus a `run-opencode.sh` wrapper for OpenCode — URLs exported by the
-   wrapper), the `moca-delegate-task` skill (upstream SKILL.md,
-   verbatim), and a `.gitignore` excluding `MOCA.md`, `.moca-delegate/`,
-   and `results/` so `contextctl ctx pack .` captures only the project.
-   The two port-forward URLs are recorded in `MOCA.md` and printed by
-   `setup.sh` for by-hand shells.
-4. Promotes `bundles/public-only/` and `bundles/full/` with `mocactl
-   promote` and writes both digests to `MOCA.md`.
+1. Verifies the tools, the `mocactl` features above, and the `moca`
+   namespace.
+2. Runs `mocactl doctor` and probes Context Service's public URL.
+3. Stages `~/tmp/moca-chained-scratch/` **as the project**: the fixture
+   at the root, the parent agent's config (Claude Code's
+   `.claude/settings.json` carries the port-forward URLs in `env`;
+   OpenCode gets `.opencode/opencode.jsonc` plus a `run-opencode.sh`
+   wrapper that exports them), the upstream skill verbatim, and a
+   `.gitignore` that keeps `MOCA.md`, `.moca-delegate/` and `results/`
+   out of `contextctl ctx pack .`.
+4. Promotes `bundles/public-only/` and `bundles/full/` and writes both
+   digests and the URLs to `MOCA.md`.
 
-Workloads and sessions are created per leaf at dispatch: the agent
-packs the scratch dir and runs `mocactl workloads create --sandboxes 1
---mount read-only|writable`. Each
-workload gets its own sandbox pod and PVC under `moca-sandbox`, seeded
-from the frozen revision; `mocactl spawn --workload <id>` creates the
-session. The skill tells the agent to delete the workload after
-collecting the result.
+Workloads are created per leaf at dispatch, each with its own sandbox
+pod and PVC under `moca-sandbox`, seeded from the frozen revision.
 
-Environment overrides (set before running):
+Overrides: `PARENT` (`claude` default, or `opencode`), `MOCA_NS`
+(default `moca`), `HARNESS_PORT` / `CP_PORT` / `CS_PORT`,
+`SCRATCH_DIR`.
 
-- `PARENT` — parent coding agent to stage config for: `claude`
-  (default) or `opencode`.
-- `MOCA_NS` — namespace (default `moca`).
-- `HARNESS_PORT` / `CP_PORT` / `CS_PORT` — local port-forward ports
-  (default `18080` / `18090` / `19090`). `prereqs-install.sh` passes
-  `SH_PUBLIC_HARNESS_URL=http://127.0.0.1:${HARNESS_PORT}` to MOCA's
-  `deploy/k8s/setup.sh` so the control plane advertises the chosen
-  port. If you override, set the same env vars before running
-  `./prereqs-install.sh` and `./setup.sh`.
-- `SCRATCH_DIR` — scratch dir path.
-
-> **Re-running setup discards the previous scratch dir.** The demo tag
-> is a constant (`moca-chained-subagents-demo`), so `mocactl subagents
-> --tag` after a re-run will show both old and new leaves until
-> teardown. Collect any results you care about first, and let the
-> agent delete any still-live workloads (or run `./teardown.sh` first
-> — it reconciles leftover workloads from `mocactl subagents --json`).
+> **Re-running setup discards the previous scratch dir**, so collect
+> results first. The tag is constant, so `mocactl subagents --tag`
+> shows old and new leaves together until `./teardown.sh`.
 
 ## Run a session
 
@@ -289,9 +211,7 @@ Claude Code:
 cd ~/tmp/moca-chained-scratch && claude
 ```
 
-OpenCode — the wrapper exports `SH_CONTROL_PLANE_URL` /
-`SH_HARNESS_URL` into the session (OpenCode has no `settings.json`
-`env` equivalent):
+OpenCode, through the wrapper that exports the URLs:
 
 ```bash
 ~/tmp/moca-chained-scratch/run-opencode.sh
@@ -303,9 +223,7 @@ workload, sandbox or subagent state change, for subagents submitted
 after it starts. A workload shows `[awaiting spawn]` until
 `mocactl spawn` labels it.
 
-For the by-hand "Peek at state" commands below, export the
-port-forward URLs so `mocactl` can reach MOCA (also printed by
-`setup.sh`):
+For the "Peek at state" commands below:
 
 ```bash
 cd ~/tmp/moca-chained-scratch
@@ -321,13 +239,10 @@ export SH_HARNESS_URL=http://127.0.0.1:18080
 > Have the leaf use its `public-research` skill. End the turn after
 > `mocactl spawn` — do not call `get`, `subagents`, or `sleep`.
 
-The parent agent re-routes through `moca-delegate-task` (the deny
-on its in-process subagent tool fires first) and follows the skill:
-pack, workload-create, `mocactl spawn`. Each permission prompt shows
-a legible dispatch command.
+The denied subagent tool pushes the parent agent to
+`moca-delegate-task`: pack, `workloads create`, `spawn`.
 
-*Peek at state:* look up the workload from the ledger and watch it
-transition:
+*Peek at state:* look up the workload from the ledger:
 
 ```bash
 WLID=$(mocactl subagents --tag moca-chained-subagents-demo --json \
@@ -335,41 +250,34 @@ WLID=$(mocactl subagents --tag moca-chained-subagents-demo --json \
 mocactl workloads get "$WLID" --json | jq '{status,contextType,revision}'
 ```
 
-`status` progresses `creating → awaiting_upload → provisioning →
-ready`; `revision`
-is the sha256 of the files.
+`status` goes `creating → awaiting_upload → provisioning → ready`;
+`revision` is the sha256 of the files.
 
-*Peek at the per-workload pod and PVC:* `mocactl workloads create`
-blocks for ~tens of seconds while the provisioner creates the
-StatefulSet, seeds the PVC from the frozen revision, and the pod
-attaches. During and after that window, in a side terminal:
+*Peek at the pod and PVC:* with `--sandboxes`, `workloads create`
+waits (up to 5 minutes) while the provisioner creates the StatefulSet
+and seeds the PVC. In a side terminal:
 
 ```bash
 kubectl -n moca-sandbox get pods,pvc,sts
 ```
 
-Expect one pod + one PVC + one StatefulSet per live workload (plus the
-shared pool). All disappear when `mocactl workloads delete` runs.
+Expect one pod, PVC and StatefulSet per live workload, plus the shared
+pool `moca-sandbox-0/1`, which this demo doesn't use. `workloads
+delete` removes them.
 
-*Optional durability beat.* To show the server owns the result,
-quit the parent agent and relaunch it (`claude` or
-`./run-opencode.sh`) before prompt 2 — the fresh session re-discovers
-the chain from `mocactl subagents --tag moca-chained-subagents-demo
---json`. See [§ Pause and resume](#pause-and-resume).
+*Optional:* quit and relaunch the parent agent before prompt 2 to show
+the chain survives (see [Pause and resume](#pause-and-resume)).
 
-**Prompt 2 — collect the diagnosis.** When you're ready (seconds to
-hours later, same session or a resumed one):
+**Prompt 2 — collect the diagnosis**, any time within 24h:
 
 > Check on that subagent and report the diagnosis.
 
-The agent looks up the diagnose leaf's handles from `mocactl
-subagents --tag moca-chained-subagents-demo --json` (filtering by
-`.label=="diagnose"`), runs `mocactl get <sessionId> --out results
---json`, and branches on `status`: `queued` → "still running", stop;
-`responded` → read `results/<sessionId>.text`, surface the diagnosis,
-and should delete the workload (`./teardown.sh` deletes any left over).
+The agent finds the `diagnose` row on the ledger and runs `mocactl
+get <sessionId> --out results`. On `queued` it reports "still running"
+and stops; on `responded` it surfaces `results/<sessionId>.text` and
+should delete the workload (`./teardown.sh` catches any it leaves).
 
-*Peek at state:* same handles, from the operator's shell:
+*Peek at state:*
 
 ```bash
 SID=$(mocactl subagents --tag moca-chained-subagents-demo --json \
@@ -377,7 +285,7 @@ SID=$(mocactl subagents --tag moca-chained-subagents-demo --json \
 mocactl get "$SID" --json | jq .
 ```
 
-`status` progresses `queued → responded` (or `failed` / `paused`).
+`status` goes `queued → responded` (or `failed` / `paused`).
 
 **Prompt 3 — start the fix.** After reviewing the diagnosis:
 
@@ -389,23 +297,20 @@ mocactl get "$SID" --json | jq .
 > End the turn after `mocactl spawn` — do not call `get`, `subagents`,
 > or `sleep`.
 
-The fix leaf runs on its own writable-mount workload; edits land on
-that PVC.
+Edits land on the fix workload's own PVC.
 
 **Prompt 4 — collect the fix result.**
 
 > Check on it.
 
-The agent collects the fix leaf (filtering ledger by
-`.label=="fix"`), surfaces the change and test outcome (`Ran 1 test /
-OK`), and should delete the workload. Each leaf is a separate session;
-between them, only prompt text flows (via `--prompt-file`).
+The agent collects the `fix` row, surfaces the diff and test output
+(`Ran 1 test` / `OK`), and should delete the workload. Only prompt
+text passes between the two leaves.
 
 ### Observe the chain
 
-The tag is stable across runs, so `mocactl subagents --tag` shows
-every dispatch under it ever. For just the current run (newest
-diagnose + anything after), filter by `submittedAt`:
+The tag spans runs; to see just the latest (newest `diagnose` and
+after), filter by `submittedAt`:
 
 ```bash
 TAG=moca-chained-subagents-demo
@@ -417,11 +322,9 @@ mocactl subagents --tag "$TAG" --json | jq '
 '
 ```
 
-Each row's `bundle` shows which posture that dispatch booted with
-(`$DIGEST_PUBLIC` for diagnose, `$DIGEST_FULL` for fix) — the chain's
-trust boundary is sha256-pinned, not operator-trust. The demo tag is
-operator-side (scopes `subagents --tag` and teardown), not a
-server-side identity.
+Each row's `bundle` is the sha256 of the posture it booted with
+(`$DIGEST_PUBLIC` for diagnose, `$DIGEST_FULL` for fix). The tag is a
+client-side ledger label, not a server-side identity.
 
 While leaves run, in another terminal:
 
@@ -430,9 +333,8 @@ kubectl -n moca-sandbox get pods
 kubectl -n moca logs -f deploy/moca-supervisor
 ```
 
-Each leaf runs in its workload's pod in `moca-sandbox`. Control plane and supervisor
-emit one JSON audit line per lifecycle event (identifiers only — no
-prompt text, file contents, or credentials); grep by sessionId:
+The supervisor logs a JSON audit line per run event (identifiers
+only, no prompt text or file contents); filter by sessionId:
 
 ```bash
 SID=$(mocactl subagents --tag moca-chained-subagents-demo --json \
@@ -441,43 +343,22 @@ kubectl --context kind-moca -n moca logs deploy/moca-supervisor | \
   jq -c -R "fromjson? | select(.event==\"audit\" and .sessionId==\"$SID\")"
 ```
 
-Context Service and sandbox pods don't surface per-request detail;
-the only transcript-shaped artifact is the subagent's final message
-(`results/<sid>.text`), which is why the `full-access-fix` skill
-requires verbatim test output in the final report.
+The only transcript is the leaf's final message
+(`results/<sid>.text`), which is why `full-access-fix` requires
+verbatim test output in it.
 
 ## Pause and resume
 
-Because the server completes the run and stores the result before
-responding — with no client-disconnect abort — you can quit the
-parent agent any time after a dispatch. Nothing local is holding the
-leaf open (the detached worker dies with your login session; the
-server doesn't care).
-
-To resume: relaunch the parent agent from the scratch dir
-(`claude` or `./run-opencode.sh`) and continue the flow — the next
-operator prompt (e.g. prompt 2 if you paused after prompt 1) picks up
-from the ledger. The parent agent runs `mocactl subagents --tag
-moca-chained-subagents-demo --json` to find the leaf and `mocactl get`
-to collect; nothing extra is needed.
-
-If you want an explicit inventory check first (useful when you've lost
-track of where you are), ask:
+The server finishes the run whether or not anything local is still
+connected, so you can quit the parent agent any time after a dispatch.
+Relaunch it from the scratch dir and send the next prompt; it finds the
+leaf on the ledger. To take stock first, ask:
 
 > Any subagents still pending from an earlier session?
 
-The agent reads the ledger (each row carries label, sessionId,
-workloadId, bundle digest, state) and tells you what's live without
-collecting.
-
-To verify from the operator shell directly (readable form):
-
-```bash
-mocactl subagents --tag moca-chained-subagents-demo --json | jq .
-```
-
-The machine-global mocactl ledger **is** the resumable state;
-nothing lives in the parent agent's session identifier.
+or run `mocactl subagents --tag moca-chained-subagents-demo --json |
+jq .` yourself. The ledger is the resumable state, not the parent
+agent's session.
 
 **What survives and what doesn't:**
 
@@ -488,25 +369,19 @@ nothing lives in the parent agent's session identifier.
 | Wait up to 24h | Yes (server-side result TTL) |
 | Wait past 24h | No — the stored result is gone |
 | Port-forwards down mid-leaf | Yes — the leaf still completes; restore the port-forward to collect |
-| Supervisor restarts mid-leaf | Yes within ~30–100 s — the server reaps the orphan as `failed` / `owner_lost`; re-dispatch under a fresh `--label` |
-| Sandbox pod killed mid-leaf | Eventually (minutes) — session reconnects and the leaf reports the mount is gone; re-dispatch |
+| Supervisor restarts mid-leaf | No — reaped as `failed` / `owner_lost` within ~90 s; re-dispatch under a fresh `--label` |
+| Workload pod killed mid-leaf | Depends — in-flight tool calls fail with `worker disconnected`; the StatefulSet recreates the pod on the same PVC. Check `mocactl get`; re-dispatch if it failed |
 | `./teardown.sh` | No — deletes the sessions and any leftover workloads |
 
 **Caveats.**
 
-- **The 24h TTL is the only deadline.** The stored result expires
-  after 24h, collected or not.
-- **`unknown` is an infrastructure outcome, not a finding.** It means
-  the worker died before the server recorded anything (port-forward
-  down at dispatch). A supervisor restart mid-run is now reaped as
-  `failed` / `owner_lost` within ~30–100 s, not `unknown`. Either way,
-  re-dispatch under a fresh `--label`.
+- **`unknown` is an infrastructure outcome, not a finding.** The
+  server still reports `queued` but the local worker is gone (e.g.
+  port-forward down at dispatch), or the status query failed.
+  Re-dispatch under a fresh `--label`.
 - **Leaves over five minutes show `running` until reconciled.** The
-  spawn worker's `POST /v1/runs` times out at 300 s; the run continues
-  server-side and `subagents` picks up its final state.
-- **`teardown.sh` makes stored results unreachable.** It deletes
-  this tag's sessions (and any live workloads). Collect what you
-  care about first.
+  worker's HTTP client gives up on `POST /v1/runs` at its default
+  5-minute timeout; the run continues and `subagents` reconciles it.
 
 ## Teardown
 
@@ -514,14 +389,10 @@ nothing lives in the parent agent's session identifier.
 ./teardown.sh
 ```
 
-This deletes every leaf session of this demo's tag
-(`mocactl subagents --tag` → `mocactl sessions delete` for each),
-deletes any workloads still live from the ledger, removes this demo's
-per-session dirs from the sandbox pods, deletes the two config bundles,
-and removes the scratch directory. It does **not** touch MOCA, Context
-Service, your cluster, your `mocactl` login, or the backgrounded
-port-forwards. For a full tear-down (demo state + port-forwards + kind
-cluster), see `./prereqs-uninstall.sh` below.
+Deletes the tag's sessions (making their results unreachable), any
+workloads still on the ledger, the two config bundles, and the scratch
+dir. MOCA, Context Service, the cluster, your login and the
+port-forwards are left alone.
 
 ## Full uninstall
 
@@ -529,19 +400,10 @@ cluster), see `./prereqs-uninstall.sh` below.
 ./prereqs-uninstall.sh
 ```
 
-Runs `teardown.sh`, kills the three backgrounded port-forwards (matched
-by argv on `kubectl --context kind-moca ... port-forward`), and deletes
-the kind cluster `moca` — which takes MOCA, Context Service, loaded
-images, the CoreDNS patch, and all namespaces with it in one call. Does
-**not** touch your `mocactl` login + credentials or the two source
-checkouts; those are yours.
+Runs `teardown.sh`, kills the port-forwards, and deletes the kind
+cluster. Your `mocactl` login and the checkouts are left alone.
 
 ## Parent-agent differences
-
-Both Claude Code and OpenCode drive the same `moca-delegate-task`
-skill, same `mocactl` commands, same four operator prompts. Only the
-parent-side config dir, config file, and env-injection mechanism
-differ:
 
 | Dimension | Claude Code | OpenCode |
 | --- | --- | --- |
@@ -554,25 +416,18 @@ differ:
 
 ## Troubleshooting
 
-Known failure modes, how to inspect state in the sandbox, and the
-by-hand version of the flow (useful when the agent is stuck or when
-verifying the mechanics from a plain terminal) live in
+Known failure modes, inspecting sandbox state, and the flow by hand:
 [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md).
 
 ## Security note
 
-This demo runs against a throwaway local cluster. MOCA's own auth is
-enabled, so leaves require a valid login — and the demo itself now
-stores **no secret anywhere**: tokens live in mocactl's own config
-dir (`~/.config/mocactl`), outside the demo, and setup no longer
-modifies any cluster-wide setting. Still: don't point it at anything
-you care about.
+A throwaway local cluster with MOCA's auth on. The scratch dir holds no
+secrets; tokens stay in `~/.config/mocactl`. The test-user secret and
+the Context Service token are fixed demo values, so don't point this at
+anything you care about.
 
-Each workload gets its own StatefulSet and PVC under the
-`moca-sandbox` namespace, so two users' workloads do not share a
-sandbox. Writes stay on the workload's PVC until the workload is
-deleted. The provisioner holds the RBAC in that namespace; the control
-plane and the harness do not.
+Each workload has its own StatefulSet and PVC in `moca-sandbox`. The
+provisioner holds the RBAC there; the control plane and harness don't.
 
 ## Files in this directory
 
@@ -584,25 +439,19 @@ ARCHITECTURE.md            Components, dispatch/collect sequence, trust boundari
 prereqs-install.sh         Stands up MOCA + Context Service on a local kind cluster and
                            backgrounds the three port-forwards; see Prerequisites
 prereqs-uninstall.sh       Runs teardown.sh, kills the port-forwards, deletes the kind cluster
-setup.sh                   Verifies prereqs via mocactl doctor, stages the scratch dir
-                           (parent-aware), and promotes the two config bundles
-teardown.sh                Deletes the demo's leaf sessions, any leftover workloads, and
-                           the two config bundles; removes the scratch dir
+setup.sh                   Checks prereqs, stages the scratch dir, promotes the bundles
+teardown.sh                Deletes the demo's sessions, leftover workloads, bundles, scratch dir
+watch.sh                   Follows workload, sandbox and subagent state changes by label
 parents/                   Parent-agent-specific config staged by setup.sh:
   claude/settings.json.example      Claude Code permission policy + env injection
   opencode/opencode.jsonc.example   OpenCode permission policy
   opencode/run-opencode.sh.in       Launcher template — renders to run-opencode.sh with
                                     port-forward URLs substituted at setup time
-example_repo/              The project the demo exercises — a stdlib-only Python project
-                           with a renamed-API bug. Its contents flatten into the scratch
-                           dir at setup time, so the parent's cwd IS the project; the
-                           parent packs that cwd at each dispatch.
-bundles/                   Two config bundles promoted at setup time: `public-only/`
-                           (public-posture skill for the diagnose leaf) and `full/`
-                           (full-access skill for the fix leaf). Each is a `.claude/skills/`
-                           directory tree passed to `mocactl promote` and referenced by
-                           sha256 digest at dispatch. The directory name is historical —
-                           both parent agents consume the same bundle format.
+example_repo/              Stdlib-only Python project with a renamed-API bug; copied to
+                           the scratch root, so the parent's cwd is the project
+bundles/                   `public-only/` (diagnose leaf) and `full/` (fix leaf), each a
+                           `.claude/skills/` tree, the layout `mocactl promote` reads,
+                           whichever parent agent dispatches
 ```
 
 In the scratch dir after `setup.sh` (Claude Code):

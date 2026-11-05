@@ -1,83 +1,50 @@
 # Troubleshooting
 
-Known failure modes, plus the by-hand flow — which doubles as the acceptance
-test for the mechanics (if this sequence doesn't run clean in a plain
-terminal, nothing above it is believable) and as the fallback when the agent
-gets stuck.
+Known failure modes, plus the flow by hand: the acceptance test for the
+mechanics and the fallback when the agent gets stuck.
 
 ## Known failure modes
 
-- **`mocactl` can't reach the control plane / connection refused, or
-  `mocactl login` fails with "the control plane closed the connection
-  (a proxy idle timeout?)".** A port-forward isn't running, or its
-  pinned pod rotated and the forward died mid-flight (common after any
-  cluster-side restart). `prereqs-install.sh` backgrounds all three —
-  supervisor on 18080, control plane on 18090, Context Service on 19090.
-  Check they are up with
-  `pgrep -f 'kubectl --context kind-moca .* port-forward'` (expect
-  three PIDs) and that something is listening on each port
-  (`lsof -nP -iTCP:18090 -sTCP:LISTEN`); tail the logs under
-  `~/.local/state/moca-chained-demo/` for why one died — a `kubectl
-  port-forward` process whose pod was replaced logs `error forwarding
-  port … failed to find sandbox` and `lost connection to pod`, and may
-  leave the local port in a half-closed state that blocks a naive
-  restart. To restart cleanly, re-run `./prereqs-install.sh` (it kills
-  stale forwards first); if a port is still bound,
-  `lsof -nP -iTCP:<port> -sTCP:LISTEN -t | xargs -r kill -9` and
-  re-run. Also make sure `SH_CONTROL_PLANE_URL` / `SH_HARNESS_URL` are
-  exported (Claude Code inherits them via `.claude/settings.json`'s
-  `env`; OpenCode inherits them only when launched via
-  `./run-opencode.sh`).
-- **`setup.sh` fails at doctor.** Follow the fix doctor prints for
-  each failing check — it covers reachability, login, credentials,
-  and the harness.
-- **A dispatch fails at `mocactl workloads create` with "Context
-  Service refused the upload".** Context Service's public URL may not
-  be reachable from this host. Check the `moca-context-service`
-  ConfigMap and that your port-forward (or whatever makes `public-url`
-  reachable) is up. Setup probes this once at startup; a mid-run
-  outage can trigger the same failure.
-- **Port conflict with Rancher Desktop's lima SSH mux on `*:8080`.**
-  The demo defaults the three port-forwards to `18080` / `18090` /
-  `19090` to avoid this, and `prereqs-install.sh` passes
-  `SH_PUBLIC_HARNESS_URL=http://127.0.0.1:${HARNESS_PORT}` to
-  `deploy/k8s/setup.sh` so the control plane advertises the matching
-  port. If you've set `HARNESS_PORT=8080` and see
-  `the harness refused: 404 http_404` with `server: istio-envoy`,
-  that's the mux — unset the override or pick a different port.
-- **A supervisor restart mid-run.** The run is reaped as
-  `failed` / `owner_lost` within ~30–100 s and `mocactl get` surfaces
-  that terminal state; re-dispatch under a fresh `--label`.
+- **`mocactl` gets connection refused, or `login` says "the control
+  plane closed the connection".** A port-forward died, usually because
+  its pod was replaced (its log under `~/.local/state/moca-chained-demo/`
+  says `lost connection to pod`). `pgrep -f 'kubectl --context kind-moca
+  .* port-forward'` should show three PIDs. Re-run
+  `./prereqs-install.sh`, which kills stale forwards first; if a port is
+  still bound, `lsof -nP -iTCP:<port> -sTCP:LISTEN -t | xargs -r kill -9`
+  and re-run. Also check `SH_CONTROL_PLANE_URL` / `SH_HARNESS_URL` are
+  set (OpenCode only gets them via `./run-opencode.sh`).
+- **`setup.sh` fails at doctor.** Follow the fix doctor prints for each
+  failing check.
+- **`workloads create` fails with "Context Service refused the
+  upload".** The `public-url` in the `moca-context-service` ConfigMap
+  isn't reachable from this host; check the 19090 port-forward.
+- **`the harness refused: 404 http_404` with `server: istio-envoy`.**
+  `HARNESS_PORT=8080` collides with Rancher Desktop's lima SSH mux on
+  `*:8080`; use the default `18080` or another free port.
+- **A supervisor restart mid-run.** The run is reaped as `failed` /
+  `owner_lost` within ~90 s; re-dispatch under a fresh `--label`.
 - **`get` says `no session`.** Wrong session id, or the session was
   deleted / aged out past 24h.
 
 ## OpenCode-specific (`PARENT=opencode`)
 
-- **OpenCode launched directly, mocactl fails with "missing
-  control-plane URL".** OpenCode has no `settings.json` `env`
-  equivalent; the staged `run-opencode.sh` wrapper exports
-  `SH_CONTROL_PLANE_URL` / `SH_HARNESS_URL` before execing opencode.
-  Either launch via `./run-opencode.sh` from the scratch dir, or
-  `export` the two URLs by hand first (recorded in `MOCA.md`).
-- **A compound shell command is auto-rejected under `opencode run`**
-  with `permission requested: external_directory (/var/folders/...)`.
-  OpenCode gates any shell operation on paths outside the project
-  root. The upstream skill packs into `.moca-delegate/` and collects
-  into `results/`; if the agent strays to `/tmp`, tell it to use those.
+- **mocactl fails with "missing control-plane URL".** OpenCode was
+  launched directly. Use `./run-opencode.sh`, or export the two URLs
+  from `MOCA.md` first.
+- **`permission requested: external_directory (/var/folders/...)`.**
+  OpenCode blocks shell access outside the project root. If the agent
+  strays to `/tmp`, point it back at `.moca-delegate/` and `results/`.
 
 ## Inspecting state in the sandbox
 
-A read-only workload never changes. A `--mount writable` workload
-keeps the fix leaf's edits on its own PVC until `workloads delete`,
-but they never reach your working tree. The leaf's final message is
-the record of what it did — if you want a diff or test output, the
-prompt must ask for it as text (the `full-access-fix` skill and the
-templates in "Running the flow by hand" below already do).
+A read-only workload never changes. A writable one keeps the fix
+leaf's edits on its PVC until `workloads delete`; they never reach your
+working tree. The leaf's final message is the record, which is why
+`full-access-fix` asks for the diff and test output in it.
 
-To inspect a workload, look up its id from the ledger and use
-`mocactl workloads get <workloadId>` — only before the agent deletes
-it after collection. `mocactl workloads list` shows every workload
-still live for your login.
+`mocactl workloads list` shows your live workloads; `workloads get
+<id>` shows one, until the agent deletes it.
 
 ```bash
 cd ~/tmp/moca-chained-scratch
@@ -89,33 +56,24 @@ cat results/<sessionId>.text      # the collected result
 
 ## Running the flow by hand
 
-What the parent agent is meant to run for each operator prompt,
-without the agent noise — and the acceptance test for the mechanics:
-this sequence must run clean in a plain terminal before anything else
-is believed. Run it from a fresh `./setup.sh`.
+What the parent agent runs for each prompt, minus the agent. Start
+from a fresh `./setup.sh`.
 
 ```bash
 cd ~/tmp/moca-chained-scratch
 
-# mocactl reaches MOCA through the port-forwards (both must be up).
-# Export the two URLs (setup.sh prints these; they're also in MOCA.md):
 export SH_CONTROL_PLANE_URL=http://127.0.0.1:18090
 export SH_HARNESS_URL=http://127.0.0.1:18080
 
-# Constant tag — scopes `mocactl subagents --tag` and teardown to
-# this demo's leaves on the machine-global ledger.
 TAG=moca-chained-subagents-demo
 
-# The two config digests promoted at setup time (both are in MOCA.md).
 DIGEST_PUBLIC="$(grep -E '^Config digest public:' MOCA.md | awk '{print $NF}')"
 DIGEST_FULL="$(grep -E '^Config digest full:'   MOCA.md | awk '{print $NF}')"
 ```
 
-Packs, prompt files and collected results go where the
-`moca-delegate-task` skill puts them: `.moca-delegate/` and `results/`,
-both in the scratch dir's `.gitignore`, so `contextctl ctx pack .`
-never ships them. The `latest` helper picks the newest ledger row for
-a label (the tag is constant, so older runs share it):
+Packs and prompts go in `.moca-delegate/`, results in `results/`
+(both gitignored, so never packed). `latest` reads the newest ledger
+row for a label:
 
 ```bash
 mkdir -p .moca-delegate results
@@ -133,13 +91,7 @@ diagnose why. The relevant docs are under docs/upstream-refs/.
 EOF
 ```
 
-The `public-research` skill (shipped by the public-only bundle) carries
-the posture, the test command, the "no edits / stdlib-only / end with
-the full report" rules, and the deliverable shape. The prompt only has
-to name the task.
-
-**2 — pack the project and create this leaf's workload** on its own
-read-only sandbox:
+**2 — pack and create a read-only workload:**
 
 ```bash
 contextctl ctx pack . -o .moca-delegate/diagnose.context
@@ -148,11 +100,7 @@ DIAG_WORKLOAD_ID="$(mocactl workloads create \
   --sandboxes 1 --mount read-only --json | jq -r '.workloadId')"
 ```
 
-**3 — dispatch it** with the public-posture config bundle via
-`--config`, and `--label diagnose` so a resumed session can find it by
-name. `--json` prints one line on stdout
-(`{"type":"session","sessionId":"…","pid":…}`); diagnostics go to
-stderr:
+**3 — dispatch** with the public-only bundle:
 
 ```bash
 mocactl spawn --kind prompt --config "$DIGEST_PUBLIC" \
@@ -160,15 +108,11 @@ mocactl spawn --kind prompt --config "$DIGEST_PUBLIC" \
   --prompt-file .moca-delegate/diagnose.prompt.txt --json
 ```
 
-Then **stop**. The leaf is durable server-side; no sidecar note needed
-— `mocactl subagents --tag "$TAG" --json` reads back the label,
-sessionId, workloadId, bundle digest, and state. Durability spot-check
-(worth doing once): Ctrl-C the supervisor's port-forward while the
-leaf runs, restore it, and collect anyway — step 4 still works, because
-the server finishes the run no matter what your laptop did.
+Then stop; the ledger holds the handles. To check durability once,
+kill the supervisor port-forward while the leaf runs, restore it, and
+collect anyway.
 
-**4 — collect** (later; re-run every minute or so until done — each
-check is free and does not disturb the leaf):
+**4 — collect** (re-run until done):
 
 ```bash
 SID="$(latest diagnose sessionId)"
@@ -176,26 +120,19 @@ WLID="$(latest diagnose workload)"
 mocactl get "$SID" --out results --json
 ```
 
-Branch on the printed `status`, not the exit code: `queued` (exit 1)
-→ still running; `failed` or `paused` (exit 1) → reason on stderr;
-`responded` (exit 0) → read the result and release the workload.
-`responded` is the prompt-kind success — `solved` is the solve-kind
-twin, and `mocactl subagents` calls both of them `done`:
+`queued` (exit 1, "has not finished yet") → still running; `failed` /
+`paused` (exit 1) → reason on stderr; `responded` (exit 0) → done:
 
 ```bash
 cat results/"$SID".text
 mocactl workloads delete "$WLID"
 ```
 
-The diagnosis should name the renamed API: `src/greet.py` calls
-`lib.old_name` while the vendored `vendor/lib/__init__.py` (v2.0.0)
-exports only `new_name`. The sandbox image ships `python3` but no
-`pip`; the project is stdlib-only, so `python3 -m unittest` runs
-directly.
+The diagnosis should say `src/greet.py` calls `lib.old_name`, but the
+vendored `vendor/lib/__init__.py` (v2.0.0) only exports `new_name`.
 
-**5 — chain the fix leaf.** Author its prompt with the diagnosis
-inlined **verbatim** (never point one leaf at another leaf's files —
-each leaf has its own sandbox and disk):
+**5 — chain the fix leaf**, inlining the diagnosis verbatim (the fix
+leaf can't see the diagnose leaf's disk):
 
 ```bash
 DIAG="$(cat results/"$SID".text)"
@@ -211,15 +148,9 @@ Apply the fix and verify.
 EOF
 ```
 
-The `full-access-fix` skill (shipped by the full bundle) carries the
-testing convention, the src/-not-vendor/ rule, the "no pip" rule, and
-the verbatim-test-output deliverable. The prompt only has to pass
-through the prior leaf's diagnosis.
-
-Pack a fresh workload for the fix leaf on its own writable sandbox
-(`--mount writable`, so no `spawn --writable`), dispatch it with
-`--label fix`, then collect and release. `get` exit 1 with "has not
-finished yet" just means still running:
+The bundles' skills carry the rules and deliverable shape, so the
+prompts only name the task. Create a writable workload (no `spawn
+--writable` needed), dispatch, collect, release:
 
 ```bash
 contextctl ctx pack . -o .moca-delegate/fix.context
@@ -238,10 +169,8 @@ mocactl workloads delete "$FIX_WORKLOAD_ID"
 rm -r .moca-delegate
 ```
 
-The report should say `src/greet.py` changed (`old_name` → `new_name`)
-and that the tests pass. The edits stay on the fix workload's PVC until
-`workloads delete` and never reach your working tree; the report's diff
-is what you apply locally.
+The report should show `old_name` → `new_name` in `src/greet.py`, the
+tests passing, and a diff to apply locally.
 
 **6 — see the whole chain:**
 
@@ -249,9 +178,7 @@ is what you apply locally.
 mocactl subagents --tag "$TAG"
 ```
 
-The newest `diagnose` and `fix` rows should show `done`; one that ran
-over five minutes may show `running` until reconciled. `mocactl get` is
-the source of truth: `responded` means it finished.
+The newest `diagnose` and `fix` rows should show `done`.
 
 **7 — tear down:**
 
@@ -261,8 +188,7 @@ cd -   # back to the demo dir
 mocactl sessions   # the demo's leaf sessions are gone
 ```
 
-Re-dispatch after a failure (fresh label, fresh workload). The
-diagnosis is still in `results/`, so re-author the prompt as in step 5:
+Re-dispatch after a failure with a fresh label and workload:
 
 ```bash
 mkdir -p .moca-delegate
@@ -276,7 +202,7 @@ mocactl spawn --kind prompt --config "$DIGEST_FULL" \
   --prompt-file .moca-delegate/fix2.prompt.txt --json
 ```
 
-Start a completely fresh chain (fresh scratch dir and config bundles; the tag stays the same):
+Start over with a fresh scratch dir and bundles:
 
 ```bash
 ./teardown.sh && ./setup.sh
